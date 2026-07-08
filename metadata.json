@@ -1,0 +1,6 @@
+{
+  "name": "Crown Detailing CRM",
+  "description": "An AI-powered CRM data entry and text parsing assistant for Durham's Crown Mobile Detailing logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

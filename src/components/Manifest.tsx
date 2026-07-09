@@ -26,22 +26,27 @@ export default function Manifest() {
     switch (status) {
       case 'Completed': return 'bg-green-100 text-green-700 border-green-200';
       case 'Paid': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-      case 'Started': return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'In Progress': return 'bg-purple-100 text-purple-700 border-purple-200';
       case 'On The Way': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'Technician Assigned': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+      case 'Reminder Sent': return 'bg-indigo-50 text-indigo-600 border-indigo-100';
       case 'Confirmed': return 'bg-sky-100 text-sky-700 border-sky-200';
       case 'Cancelled': return 'bg-red-100 text-red-700 border-red-200';
+      case 'Rescheduled': return 'bg-orange-100 text-orange-700 border-orange-200';
+      case 'New': return 'bg-slate-100 text-slate-800 border-slate-300';
       default: return 'bg-slate-100 text-slate-700 border-slate-200';
     }
   };
 
   const nextStatus = (currentStatus: string) => {
     switch (currentStatus) {
-      case 'New Booking': return 'Confirmed';
-      case 'Confirmed': return 'On The Way';
-      case 'On The Way': return 'Started';
-      case 'Started': return 'Completed';
+      case 'New': return 'Confirmed';
+      case 'Confirmed': return 'Reminder Sent';
+      case 'Reminder Sent': return 'Technician Assigned';
+      case 'Technician Assigned': return 'On The Way';
+      case 'On The Way': return 'In Progress';
+      case 'In Progress': return 'Completed';
       case 'Completed': return 'Paid';
-      case 'Paid': return 'Follow-up Needed';
       default: return null;
     }
   };
@@ -76,6 +81,8 @@ export default function Manifest() {
       
       if (next === 'Confirmed') {
         message = `Hello ${customer.fullName},\n\nYour appointment with Durham's Crown Mobile Detailing has been confirmed for ${dateStr} at ${formatTime(booking.time)}.\n\nWe appreciate the opportunity to care for your vehicle and look forward to providing you with exceptional service.\n\nThank you for choosing\nDurham's Crown Mobile Detailing.`;
+      } else if (next === 'Reminder Sent') {
+        message = `Hello ${customer.fullName}, this is a reminder that your Durham’s Crown Mobile Detailing appointment is scheduled for ${dateStr} at ${formatTime(booking.time)}. Please ensure your vehicle is accessible and remove any personal belongings before our arrival. We look forward to providing exceptional service.`;
       } else if (next === 'On The Way') {
         message = `Hello ${customer.fullName},\n\nYour Durham’s Crown Mobile Detailing technician is currently on the way and will be arriving shortly for your scheduled service.\n\nTo ensure the best possible detailing experience, please have your vehicle accessible and remove any personal belongings or valuables from the interior prior to our arrival.\n\nWe appreciate your trust in Durham’s Crown Mobile Detailing and look forward to delivering exceptional care for your vehicle.`;
       } else if (next === 'Completed') {
@@ -93,26 +100,6 @@ export default function Manifest() {
           });
         }, 3000);
       }
-    }
-  };
-
-  const handleSendReminder = (jobId: string) => {
-    const booking = bookings.find(b => b.id === jobId);
-    const customer = getCustomer(booking?.customerId || '');
-    
-    if (customer?.phoneNumber && booking) {
-      const dateStr = new Date(booking.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
-      const message = `Hello ${customer.fullName}, this is a reminder that your Durham’s Crown Mobile Detailing appointment is scheduled for ${dateStr} at ${formatTime(booking.time)}. Please ensure your vehicle is accessible and remove any personal belongings before our arrival. We look forward to providing exceptional service.`;
-      
-      setSmsStatus(prev => ({ ...prev, [jobId]: 'Opening SMS App...' }));
-      window.open(`sms:${customer.phoneNumber}?body=${encodeURIComponent(message)}`, '_blank');
-      setTimeout(() => {
-        setSmsStatus(prev => {
-          const newStatus = { ...prev };
-          delete newStatus[jobId];
-          return newStatus;
-        });
-      }, 3000);
     }
   };
 
@@ -261,14 +248,6 @@ export default function Manifest() {
                         <div className="flex items-center gap-1.5 text-xs font-bold px-2 py-1 bg-blue-50 text-blue-600 rounded">
                           <Bell size={12} /> {smsStatus[job.id]}
                         </div>
-                      )}
-                      {job.status === 'Confirmed' && (
-                        <button 
-                          onClick={() => handleSendReminder(job.id)}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors"
-                        >
-                          Send 24h Reminder
-                        </button>
                       )}
                       {nextStatus(job.status) ? (
                         <button 

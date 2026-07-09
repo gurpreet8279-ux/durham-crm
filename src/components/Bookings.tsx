@@ -4,7 +4,7 @@ import { useCRM } from '../store/useCRM';
 import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car } from 'lucide-react';
 
 const STATUS_OPTIONS: BookingStatus[] = [
-  'New Booking', 'Confirmed', 'On The Way', 'Started', 'Completed', 'Paid', 'Follow-up Needed', 'Cancelled'
+  'New', 'Confirmed', 'Reminder Sent', 'Technician Assigned', 'On The Way', 'In Progress', 'Completed', 'Paid', 'Cancelled', 'Rescheduled'
 ];
 
 export default function Bookings() {
@@ -22,7 +22,7 @@ export default function Bookings() {
     vehicle: '',
     price: 0,
     paymentStatus: 'Unpaid',
-    status: 'New Booking',
+    status: 'New',
     notes: ''
   });
 
@@ -41,7 +41,7 @@ export default function Bookings() {
     });
 
   const resetForm = () => {
-    setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], time: '09:00', duration: 120, service: '', vehicle: '', price: 0, paymentStatus: 'Unpaid', status: 'New Booking', notes: '' });
+    setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], time: '09:00', duration: 120, service: '', vehicle: '', price: 0, paymentStatus: 'Unpaid', status: 'New', notes: '' });
     setIsAdding(false);
     setEditingId(null);
   };
@@ -223,21 +223,17 @@ export default function Bookings() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'Completed': 
-      case 'completed': 
-        return <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Completed</span>;
-      case 'Paid':
-        return <span className="bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Paid</span>;
-      case 'Cancelled': 
-      case 'cancelled': 
-        return <span className="bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Cancelled</span>;
-      case 'Confirmed':
-        return <span className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Confirmed</span>;
-      case 'On The Way':
-      case 'Started':
-        return <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">{status}</span>;
-      default: 
-        return <span className="bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">{status}</span>;
+      case 'Completed': return <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Completed</span>;
+      case 'Paid': return <span className="bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Paid</span>;
+      case 'In Progress': return <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">In Progress</span>;
+      case 'On The Way': return <span className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">On The Way</span>;
+      case 'Technician Assigned': return <span className="bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Assigned</span>;
+      case 'Reminder Sent': return <span className="bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Reminder</span>;
+      case 'Confirmed': return <span className="bg-sky-100 text-sky-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Confirmed</span>;
+      case 'Cancelled': return <span className="bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Cancelled</span>;
+      case 'Rescheduled': return <span className="bg-orange-100 text-orange-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Rescheduled</span>;
+      case 'New': return <span className="bg-slate-100 text-slate-800 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">New</span>;
+      default: return <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">{status}</span>;
     }
   };
 

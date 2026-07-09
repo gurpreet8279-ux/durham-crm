@@ -5,9 +5,9 @@ export default function Dashboard() {
   const { customers, bookings, updateBooking } = useCRM();
 
   // Booking filtering
-  const activeBookings = bookings.filter(b => ['New Booking', 'Confirmed', 'On The Way', 'Started', 'pending'].includes(b.status));
+  const activeBookings = bookings.filter(b => ['New', 'Confirmed', 'Reminder Sent', 'Technician Assigned', 'On The Way', 'In Progress', 'Rescheduled', 'New Booking', 'pending'].includes(b.status));
   const completedBookings = bookings.filter(b => ['Completed', 'Paid', 'completed'].includes(b.status));
-  const followUpsNeeded = bookings.filter(b => b.status === 'Follow-up Needed');
+  const followUpsNeeded = bookings.filter(b => false); // removed as status was removed
   
   // Date calculations
   const today = new Date();

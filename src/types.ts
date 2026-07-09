@@ -11,7 +11,7 @@ export interface Customer {
   lastServiceDate?: string;
 }
 
-export type BookingStatus = 'New Booking' | 'Confirmed' | 'On The Way' | 'Started' | 'Completed' | 'Paid' | 'Follow-up Needed' | 'Cancelled';
+export type BookingStatus = 'New' | 'Confirmed' | 'Reminder Sent' | 'Technician Assigned' | 'On The Way' | 'In Progress' | 'Completed' | 'Paid' | 'Cancelled' | 'Rescheduled';
 
 export interface Booking {
   id: string;

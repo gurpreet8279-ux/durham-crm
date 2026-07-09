@@ -1,27 +1,29 @@
 import { useState, useEffect } from 'react';
 import { Crown, RefreshCcw, Info } from 'lucide-react';
-import { getAccessToken } from '../lib/firebase';
+import { initAuth, googleSignIn } from '../lib/firebase';
+import type { User } from 'firebase/auth';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [needsAuth, setNeedsAuth] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    // Automatically check if we already have the token
-    const checkToken = async () => {
-      try {
-        const token = await getAccessToken();
-        if (token) {
-          setNeedsAuth(false);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
+    const unsubscribe = initAuth(
+      (user) => {
+        setUser(user);
+        setNeedsAuth(false);
+        setIsLoading(false);
+      },
+      () => {
+        setUser(null);
+        setNeedsAuth(true);
         setIsLoading(false);
       }
-    };
-    checkToken();
+    );
+
+    return () => unsubscribe();
   }, []);
 
   const handleLogin = async () => {
@@ -29,8 +31,9 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
     setIsLoggingIn(true);
 
     try {
-      const token = await getAccessToken();
-      if (token) {
+      const result = await googleSignIn();
+      if (result) {
+        setUser(result.user);
         setNeedsAuth(false);
       }
     } catch (err: any) {

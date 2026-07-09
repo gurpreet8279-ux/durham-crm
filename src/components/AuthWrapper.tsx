@@ -1,106 +1,40 @@
 import { useState, useEffect } from 'react';
-import { User } from 'firebase/auth';
-import { initAuth, googleSignIn, logout } from '../lib/firebase';
-import { Crown, AlertCircle, Info, RefreshCcw } from 'lucide-react';
+import { Crown, RefreshCcw, Info } from 'lucide-react';
+import { getAccessToken } from '../lib/firebase';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [needsAuth, setNeedsAuth] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [helpSteps, setHelpSteps] = useState<string[]>([]);
 
   useEffect(() => {
-    const unsubscribe = initAuth(
-      (user, token) => {
-        setUser(user);
-        setNeedsAuth(false);
-        setIsLoading(false);
-      },
-      (error) => {
-        setUser(null);
-        setNeedsAuth(true);
-        setIsLoading(false);
-        if (error) {
-          handleAuthError(error);
+    // Automatically check if we already have the token
+    const checkToken = async () => {
+      try {
+        const token = await getAccessToken();
+        if (token) {
+          setNeedsAuth(false);
         }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsLoading(false);
       }
-    );
-    return () => unsubscribe();
+    };
+    checkToken();
   }, []);
 
-  const handleAuthError = (err: any) => {
-    console.error('Auth Error Full:', err);
-    let msg = err.message || 'An error occurred during sign in';
-    let steps: string[] = [];
-    
-    if (err.code === 'auth/unauthorized-domain') {
-      msg = `Domain not authorized for Firebase Auth.`;
-      steps = [
-        `1. Go to Firebase Console -> Authentication -> Settings -> Authorized Domains`,
-        `2. Click "Add Domain"`,
-        `3. Add this exact domain: ${window.location.hostname}`,
-        `4. If on Netlify, add your Netlify app domain.`
-      ];
-    } else if (err.code === 'auth/operation-not-allowed') {
-      msg = `Google Sign-In is not enabled.`;
-      steps = [
-        `1. Go to Firebase Console -> Authentication -> Sign-in method`,
-        `2. Click "Add new provider" -> Google`,
-        `3. Enable it and save.`
-      ];
-    } else if (err.code === 'auth/popup-blocked') {
-      msg = `Sign-in popup was blocked by your browser.`;
-      steps = [
-        `Please allow popups for this site. We will try to fall back to a full-page redirect.`
-      ];
-    } else if (err.message && err.message.includes('Cross-Origin')) {
-       msg = `Cross-Origin policy blocked the sign in.`;
-       steps = [
-         `This usually happens in preview iframes. Please deploy to Netlify or open the app in a new tab (outside of the AI Studio iframe).`
-       ];
-    } else if (err.code === 'auth/network-request-failed') {
-       msg = `Network error. Could not reach Firebase.`;
-       steps = [
-         `Please check your internet connection or any adblockers/firewalls that might block Firebase.`
-       ];
-    }
-    
-    setErrorMsg(msg);
-    setHelpSteps(steps);
-  };
-
   const handleLogin = async () => {
-    console.log("Login button clicked");
+    console.log("Connect button clicked");
     setIsLoggingIn(true);
-    setErrorMsg(null);
-    setHelpSteps([]);
-    
-    // Fallback timeout in case the promise never resolves/rejects (e.g., silent block)
-    const timeoutId = setTimeout(() => {
-      if (isLoggingIn) {
-        setIsLoggingIn(false);
-        setErrorMsg("Login attempt timed out. The popup might have been silently blocked by your browser.");
-        setHelpSteps([
-          "Please check your browser's popup blocker.",
-          "Try opening the application in a completely new tab.",
-          "If on mobile, try Safari/Chrome directly instead of an in-app browser."
-        ]);
-      }
-    }, 15000); // 15 seconds timeout
 
     try {
-      const result = await googleSignIn();
-      clearTimeout(timeoutId);
-      if (result) {
-        setUser(result.user);
+      const token = await getAccessToken();
+      if (token) {
         setNeedsAuth(false);
       }
     } catch (err: any) {
-      clearTimeout(timeoutId);
-      console.error('Login failed catch block:', err);
-      handleAuthError(err);
+      console.error('Connection failed:', err);
     } finally {
       setIsLoggingIn(false);
     }
@@ -126,29 +60,7 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
               <Crown size={32} />
             </div>
             <h1 className="text-2xl font-bold text-slate-900 mb-2">Crown CRM</h1>
-            <p className="text-slate-500 mb-8">Sign in to manage your mobile detailing business</p>
-            
-            {errorMsg && (
-              <div className="w-full mb-6 p-4 bg-red-50 text-red-800 rounded-xl text-sm flex flex-col gap-3 text-left border border-red-100 shadow-sm">
-                <div className="flex items-start gap-2 font-bold">
-                  <AlertCircle className="shrink-0 mt-0.5 text-red-600" size={18} />
-                  <span>{errorMsg}</span>
-                </div>
-                {helpSteps.length > 0 && (
-                  <div className="bg-white/50 rounded-lg p-3 space-y-2 mt-1">
-                    <p className="font-bold text-xs uppercase tracking-wider text-red-600">How to fix this:</p>
-                    <ul className="space-y-1.5 text-red-700">
-                      {helpSteps.map((step, i) => (
-                        <li key={i} className="flex gap-2">
-                          <span className="opacity-50">•</span> 
-                          <span>{step}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
+            <p className="text-slate-500 mb-8">Connect Google Workspace to manage your detailing business</p>
             
             <button 
               onClick={handleLogin}
@@ -158,7 +70,7 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
               {isLoggingIn ? (
                 <>
                   <RefreshCcw className="w-5 h-5 animate-spin text-blue-600" />
-                  Attempting Login...
+                  Connecting...
                 </>
               ) : (
                 <>
@@ -169,14 +81,14 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
                     <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                     <path d="M1 1h22v22H1z" fill="none"/>
                   </svg>
-                  Sign in with Google
+                  Connect Google Workspace
                 </>
               )}
             </button>
           </div>
           <div className="bg-slate-50 p-4 text-center border-t border-slate-100 flex items-center justify-center gap-2">
             <Info size={14} className="text-slate-400" />
-            <p className="text-xs text-slate-500">Secure access via Firebase Auth</p>
+            <p className="text-xs text-slate-500">Secure access via Google OAuth</p>
           </div>
         </div>
       </div>

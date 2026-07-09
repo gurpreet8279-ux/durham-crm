@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { initAuth, googleSignIn, logout } from '../lib/firebase';
-import { Crown, LogIn } from 'lucide-react';
+import { Crown, LogIn, AlertCircle } from 'lucide-react';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [needsAuth, setNeedsAuth] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -16,10 +17,13 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
         setNeedsAuth(false);
         setIsLoading(false);
       },
-      () => {
+      (error) => {
         setUser(null);
         setNeedsAuth(true);
         setIsLoading(false);
+        if (error) {
+          setErrorMsg(error.message || 'Authentication failed');
+        }
       }
     );
     return () => unsubscribe();
@@ -27,14 +31,16 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
+    setErrorMsg(null);
     try {
       const result = await googleSignIn();
       if (result) {
         setUser(result.user);
         setNeedsAuth(false);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Login failed:', err);
+      setErrorMsg(err.message || 'An error occurred during sign in');
     } finally {
       setIsLoggingIn(false);
     }
@@ -61,6 +67,13 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
             </div>
             <h1 className="text-2xl font-bold text-slate-900 mb-2">Crown CRM</h1>
             <p className="text-slate-500 mb-8">Sign in to manage your mobile detailing business</p>
+            
+            {errorMsg && (
+              <div className="w-full mb-6 p-4 bg-red-50 text-red-700 rounded-lg text-sm flex items-start gap-3 text-left border border-red-100">
+                <AlertCircle className="shrink-0 mt-0.5" size={16} />
+                <span>{errorMsg}</span>
+              </div>
+            )}
             
             <button 
               onClick={handleLogin}

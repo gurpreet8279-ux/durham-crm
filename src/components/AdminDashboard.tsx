@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCRM } from '../store/useCRM';
 import { auth, logout } from '../lib/firebase';
 import { createSpreadsheet, syncToGoogleSheets, syncToGoogleCalendar, getCalendars } from '../lib/workspace';
@@ -7,7 +7,8 @@ import { Settings, Database, Calendar, MessageSquare, LogOut } from 'lucide-reac
 export default function AdminDashboard() {
   const { customers, bookings, spreadsheetId, setSpreadsheetId, calendarId, setCalendarId } = useCRM();
   const [availableCalendars, setAvailableCalendars] = useState<any[]>([]);
-  
+  const user = auth.currentUser;
+
   useEffect(() => {
     if (user) {
       getCalendars().then(setAvailableCalendars).catch(console.error);
@@ -16,7 +17,6 @@ export default function AdminDashboard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
-  const user = auth.currentUser;
 
   const handleSyncToSheets = async () => {
     setIsSyncing(true);
@@ -52,7 +52,7 @@ export default function AdminDashboard() {
     setIsSyncing(true);
     setSyncStatus('Syncing upcoming bookings to Calendar...');
     try {
-      const upcomingBookings = bookings.filter(b => b.status === 'New Booking' || b.status === 'Confirmed');
+      const upcomingBookings = bookings.filter(b => b.status === 'New' || b.status === 'Confirmed');
       for (const booking of upcomingBookings) {
         const customer = customers.find(c => c.id === booking.customerId);
         await syncToGoogleCalendar(booking, customer, calendarId || 'primary');

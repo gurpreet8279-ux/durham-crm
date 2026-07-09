@@ -1,7 +1,7 @@
+/// <reference types="vite/client" />
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfigFallback from '../../firebase-applet-config.json';
-import { getOAuthToken } from 'ais-api/client';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigFallback.apiKey,
@@ -16,15 +16,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-export const getAccessToken = async (): Promise<string | null> => {
-  try {
-    return await getOAuthToken();
-  } catch(e) {
-    console.error("Failed to get OAuth token", e);
-    return null;
-  }
-};
-
 export const auth = {
   currentUser: {
     displayName: "User",
@@ -35,4 +26,8 @@ export const auth = {
 
 export const logout = async () => {
   window.location.reload();
+};
+
+export const getAccessToken = async (): Promise<string | null> => {
+  return null;
 };

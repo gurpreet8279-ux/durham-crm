@@ -26,4 +26,5 @@ export interface Booking {
   notes?: string;
   createdAt: string;
   vehicle?: string;
+  calendarEventId?: string;
 }

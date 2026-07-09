@@ -5,5 +5,6 @@
   "authDomain": "flawless-filament-h4k5l.firebaseapp.com",
   "storageBucket": "flawless-filament-h4k5l.firebasestorage.app",
   "messagingSenderId": "286404423788",
-  "measurementId": ""
+  "measurementId": "",
+  "oAuthClientId": "286404423788-6095l0lg2o13bvioasq2dbscf3qimh7u.apps.googleusercontent.com"
 }

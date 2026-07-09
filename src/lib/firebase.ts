@@ -2,6 +2,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfigFallback from '../../firebase-applet-config.json';
+import { getOAuthToken } from 'ais-api/client';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigFallback.apiKey,
@@ -29,5 +30,10 @@ export const logout = async () => {
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return null;
+  try {
+    return await getOAuthToken();
+  } catch(e) {
+    console.error("Failed to get OAuth token", e);
+    return null;
+  }
 };

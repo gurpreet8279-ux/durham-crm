@@ -29,8 +29,10 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
     setIsLoggingIn(true);
 
     try {
-      // Since we are mocking auth, just let the user in
-      setNeedsAuth(false);
+      const token = await getAccessToken();
+      if (token) {
+        setNeedsAuth(false);
+      }
     } catch (err: any) {
       console.error('Connection failed:', err);
     } finally {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { initAuth, googleSignIn, User } from '../lib/firebase';
+import { initAuth, googleSignIn } from '../lib/firebase';
 import { Crown } from 'lucide-react';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
@@ -54,7 +54,7 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
             <Crown size={32} />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Crown CRM</h1>
-          <p className="text-slate-500 mb-8 text-sm">Sign in with Google to sync your calendar and spreadsheets.</p>
+          <p className="text-slate-500 mb-8 text-sm">Sign in with Google to access your CRM database.</p>
           
           <button
             onClick={handleLogin}

@@ -1,8 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { Customer, Booking } from '../types';
-import { syncToGoogleCalendar, deleteFromGoogleCalendar } from '../lib/workspace';
 
 interface CRMContextType {
   customers: Customer[];
@@ -26,37 +23,26 @@ function generateId(prefix: string) {
 }
 
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    const saved = localStorage.getItem('crm_customers');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [bookings, setBookings] = useState<Booking[]>(() => {
+    const saved = localStorage.getItem('crm_bookings');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [spreadsheetId, setSpreadsheetIdState] = useState<string | null>(null);
   const [calendarId, setCalendarIdState] = useState<string | null>(null);
 
   useEffect(() => {
-    const qCustomers = query(collection(db, 'customers'), orderBy('createdAt', 'desc'));
-    const unsubscribeCustomers = onSnapshot(qCustomers, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer));
-      setCustomers(data);
-    });
+    localStorage.setItem('crm_customers', JSON.stringify(customers));
+  }, [customers]);
 
-    const qBookings = query(collection(db, 'bookings'), orderBy('createdAt', 'desc'));
-    const unsubscribeBookings = onSnapshot(qBookings, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
-      setBookings(data);
-    });
-
-    const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'general'), (doc) => {
-      if (doc.exists()) {
-        setSpreadsheetIdState(doc.data().spreadsheetId || null);
-        setCalendarIdState(doc.data().calendarId || null);
-      }
-    });
-
-    return () => {
-      unsubscribeCustomers();
-      unsubscribeBookings();
-      unsubscribeSettings();
-    };
-  }, []);
+  useEffect(() => {
+    localStorage.setItem('crm_bookings', JSON.stringify(bookings));
+  }, [bookings]);
 
   const addCustomer = async (customerData: Omit<Customer, 'id' | 'createdAt'>) => {
     const id = generateId('cus');
@@ -65,16 +51,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id,
       createdAt: new Date().toISOString(),
     };
-    await setDoc(doc(db, 'customers', id), newCustomer);
+    setCustomers(prev => [newCustomer, ...prev]);
     return newCustomer;
   };
 
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    await updateDoc(doc(db, 'customers', id), updates);
+    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
   };
 
   const deleteCustomer = async (id: string) => {
-    await deleteDoc(doc(db, 'customers', id));
+    setCustomers(prev => prev.filter(c => c.id !== id));
   };
 
   const addBooking = async (bookingData: Omit<Booking, 'id' | 'createdAt'>) => {
@@ -84,75 +70,34 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id,
       createdAt: new Date().toISOString(),
     };
-    
-    // Attempt calendar sync
-    if (calendarId) {
-      try {
-        const c = customers.find(c => c.id === newBooking.customerId);
-        const eventId = await syncToGoogleCalendar(newBooking, c, calendarId);
-        newBooking.calendarEventId = eventId;
-      } catch (e) {
-        console.error("Failed to auto-create calendar event", e);
-      }
-    }
-
-    await setDoc(doc(db, 'bookings', id), newBooking);
+    setBookings(prev => [newBooking, ...prev]);
     return newBooking;
   };
 
   const updateBooking = async (id: string, updates: Partial<Booking>) => {
-    const bookingRef = doc(db, 'bookings', id);
-    const bookingDoc = await getDoc(bookingRef);
-    if (!bookingDoc.exists()) return;
-    
-    const existing = bookingDoc.data() as Booking;
-    const merged = { ...existing, ...updates };
-
-    // Sync to calendar if date/time/details changed
-    if (calendarId && (updates.date || updates.time || updates.service || updates.notes)) {
-      try {
-        const c = customers.find(c => c.id === merged.customerId);
-        const eventId = await syncToGoogleCalendar(merged, c, calendarId);
-        if (eventId !== merged.calendarEventId) {
-          updates.calendarEventId = eventId;
+    setBookings(prev => {
+      const updated = prev.map(b => b.id === id ? { ...b, ...updates } : b);
+      const changedBooking = updated.find(b => b.id === id);
+      
+      // Auto-update customer history if completed
+      if (changedBooking && (updates.status === 'Completed' || updates.status === 'Paid')) {
+        if (changedBooking.customerId) {
+          updateCustomer(changedBooking.customerId, { lastServiceDate: changedBooking.date });
         }
-      } catch (e) {
-        console.error("Failed to auto-update calendar event", e);
       }
-    }
-
-    await updateDoc(bookingRef, updates);
-    
-    // Auto-update customer history if completed
-    if (updates.status === 'Completed' || updates.status === 'Paid') {
-      if (merged.customerId) {
-        await updateCustomer(merged.customerId, { lastServiceDate: merged.date });
-      }
-    }
+      return updated;
+    });
   };
 
   const deleteBooking = async (id: string) => {
-    const bookingDoc = await getDoc(doc(db, 'bookings', id));
-    if (bookingDoc.exists()) {
-      const data = bookingDoc.data() as Booking;
-      if (data.calendarEventId && calendarId) {
-        try {
-          await deleteFromGoogleCalendar(data.calendarEventId, calendarId);
-        } catch (e) {
-          console.error("Failed to auto-delete calendar event", e);
-        }
-      }
-    }
-    await deleteDoc(doc(db, 'bookings', id));
+    setBookings(prev => prev.filter(b => b.id !== id));
   };
 
   const setSpreadsheetId = async (id: string | null) => {
-    await setDoc(doc(db, 'settings', 'general'), { spreadsheetId: id }, { merge: true });
     setSpreadsheetIdState(id);
   };
 
   const setCalendarId = async (id: string | null) => {
-    await setDoc(doc(db, 'settings', 'general'), { calendarId: id }, { merge: true });
     setCalendarIdState(id);
   };
 

@@ -1,18 +1,20 @@
 import { useState } from 'react';
-import { Booking, BookingStatus } from '../types';
+import { Booking, BookingStatus, Customer } from '../types';
 import { useCRM } from '../store/useCRM';
-import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car } from 'lucide-react';
+import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users } from 'lucide-react';
 
 const STATUS_OPTIONS: BookingStatus[] = [
   'New', 'Confirmed', 'Reminder Sent', 'Technician Assigned', 'On The Way', 'In Progress', 'Completed', 'Paid', 'Cancelled', 'Rescheduled'
 ];
 
 export default function Bookings() {
-  const { bookings, customers, addBooking, updateBooking, deleteBooking } = useCRM();
+  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer } = useCRM();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-
+  
+  const [isNewCustomer, setIsNewCustomer] = useState(false);
+  
   const [formData, setFormData] = useState<Partial<Booking>>({
     customerId: '',
     date: new Date().toISOString().split('T')[0],
@@ -26,9 +28,19 @@ export default function Bookings() {
     notes: ''
   });
 
+  const [customerData, setCustomerData] = useState<Partial<Customer>>({
+    fullName: '',
+    phoneNumber: '',
+    email: '',
+    address: '',
+    city: '',
+    vehicles: [],
+    notes: ''
+  });
+
   const getCustomerName = (id: string) => customers.find(c => c.id === id)?.fullName || 'Unknown';
   const getCustomer = (id: string) => customers.find(c => c.id === id);
-
+  
   const filteredBookings = bookings
     .filter(b => {
       const cName = getCustomerName(b.customerId).toLowerCase();
@@ -42,25 +54,43 @@ export default function Bookings() {
 
   const resetForm = () => {
     setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], time: '09:00', duration: 120, service: '', vehicle: '', price: 0, paymentStatus: 'Unpaid', status: 'New', notes: '' });
+    setCustomerData({ fullName: '', phoneNumber: '', email: '', address: '', city: '', vehicles: [], notes: '' });
     setIsAdding(false);
     setEditingId(null);
+    setIsNewCustomer(false);
   };
 
   const handleEdit = (booking: Booking) => {
     setFormData({ ...booking });
     setIsAdding(true);
     setEditingId(booking.id);
+    setIsNewCustomer(false);
   };
 
-  const handleSave = () => {
-    if (!formData.customerId || !formData.date || !formData.service) return;
-
-    if (editingId) {
-      updateBooking(editingId, formData);
+  const handleSave = async () => {
+    if (isNewCustomer && !editingId) {
+      if (!customerData.fullName) {
+        alert("Please enter customer name");
+        return;
+      }
+      try {
+        const newCust = await addCustomer(customerData as Omit<Customer, 'id' | 'createdAt'>);
+        if (!formData.date || !formData.service) return;
+        await addBooking({ ...(formData as Omit<Booking, 'id' | 'createdAt'>), customerId: newCust.id, vehicle: formData.vehicle || (customerData.vehicles && customerData.vehicles[0]) || '' });
+        resetForm();
+      } catch (err) {
+        console.error(err);
+        alert("Error saving booking");
+      }
     } else {
-      addBooking(formData as Omit<Booking, 'id' | 'createdAt'>);
+      if (!formData.customerId || !formData.date || !formData.service) return;
+      if (editingId) {
+        updateBooking(editingId, formData);
+      } else {
+        addBooking(formData as Omit<Booking, 'id' | 'createdAt'>);
+      }
+      resetForm();
     }
-    resetForm();
   };
 
   if (isAdding) {
@@ -72,20 +102,73 @@ export default function Bookings() {
           <button onClick={resetForm} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
         </div>
         
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Customer *</label>
-            <select 
-              value={formData.customerId || ''} 
-              onChange={e => setFormData({...formData, customerId: e.target.value, vehicle: ''})}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
-              <option value="" disabled>Select a customer...</option>
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>{c.fullName} - {c.phoneNumber}</option>
-              ))}
-            </select>
-          </div>
+        <div className="space-y-6">
+          {!editingId && (
+            <div className="flex bg-slate-100 p-1 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setIsNewCustomer(false)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all ${!isNewCustomer ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <Users size={16} /> Existing Customer
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNewCustomer(true)}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium rounded-md transition-all ${isNewCustomer ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <UserPlus size={16} /> New Customer
+              </button>
+            </div>
+          )}
+
+          {(!isNewCustomer || editingId) ? (
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Customer *</label>
+              <select 
+                value={formData.customerId || ''} 
+                onChange={e => setFormData({...formData, customerId: e.target.value, vehicle: ''})}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                <option value="" disabled>Select a customer...</option>
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>{c.fullName} - {c.phoneNumber}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Full Name *</label>
+                  <input 
+                    type="text" 
+                    value={customerData.fullName || ''} 
+                    onChange={e => setCustomerData({...customerData, fullName: e.target.value})}
+                    className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Phone Number</label>
+                  <input 
+                    type="tel" 
+                    value={customerData.phoneNumber || ''} 
+                    onChange={e => setCustomerData({...customerData, phoneNumber: e.target.value})}
+                    className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Address</label>
+                <input 
+                  type="text" 
+                  value={customerData.address || ''} 
+                  onChange={e => setCustomerData({...customerData, address: e.target.value})}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="md:col-span-2">
@@ -119,82 +202,83 @@ export default function Bookings() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Status</label>
-              <select 
-                value={formData.status || 'New Booking'} 
-                onChange={e => setFormData({...formData, status: e.target.value as any})}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              >
-                {STATUS_OPTIONS.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-                {/* Fallback for old pending status */}
-                {formData.status === 'pending' && <option value="pending">Pending</option>}
-              </select>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Vehicle</label>
+              {isNewCustomer && !editingId ? (
+                <input 
+                  type="text" 
+                  value={formData.vehicle || ''} 
+                  onChange={e => {
+                    setFormData({...formData, vehicle: e.target.value});
+                    setCustomerData({...customerData, vehicles: [e.target.value]});
+                  }}
+                  placeholder="e.g. Black Honda Civic"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                />
+              ) : (
+                <select
+                  value={formData.vehicle || ''}
+                  onChange={e => setFormData({...formData, vehicle: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                >
+                  <option value="">No vehicle specified</option>
+                  {selectedCustomer?.vehicles?.map((v, i) => (
+                    <option key={i} value={v}>{v}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Service *</label>
+              <input 
+                type="text" 
+                value={formData.service || ''} 
+                onChange={e => setFormData({...formData, service: e.target.value})}
+                placeholder="e.g. Full Detail"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Price</label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input 
+                  type="number" 
+                  value={formData.price || ''} 
+                  onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
+                  className="w-full pl-9 pr-4 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Payment</label>
               <select 
                 value={formData.paymentStatus || 'Unpaid'} 
-                onChange={e => setFormData({...formData, paymentStatus: e.target.value as any})}
+                onChange={e => setFormData({...formData, paymentStatus: e.target.value as 'Paid' | 'Unpaid'})}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
                 <option value="Unpaid">Unpaid</option>
                 <option value="Paid">Paid</option>
               </select>
             </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Service(s) *</label>
-              <input 
-                type="text" 
-                placeholder="e.g. Full Interior + Exterior Wash"
-                value={formData.service || ''} 
-                onChange={e => setFormData({...formData, service: e.target.value})}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
-              />
-            </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Price ($)</label>
-              <input 
-                type="number" 
-                min="0"
-                step="0.01"
-                value={formData.price || 0} 
-                onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
-              />
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Status</label>
+              <select 
+                value={formData.status || 'New'} 
+                onChange={e => setFormData({...formData, status: e.target.value as BookingStatus})}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                {STATUS_OPTIONS.map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <div>
-             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Vehicle</label>
-             {selectedCustomer?.vehicles && selectedCustomer.vehicles.length > 0 ? (
-               <select 
-                 value={formData.vehicle || ''} 
-                 onChange={e => setFormData({...formData, vehicle: e.target.value})}
-                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-               >
-                 <option value="">Select or type a vehicle...</option>
-                 {selectedCustomer.vehicles.map((v, i) => (
-                   <option key={i} value={v}>{v}</option>
-                 ))}
-               </select>
-             ) : (
-                <input 
-                  type="text" 
-                  placeholder="e.g. 2021 Ford F-150"
-                  value={formData.vehicle || ''} 
-                  onChange={e => setFormData({...formData, vehicle: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
-                />
-             )}
-          </div>
-          
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Notes</label>
             <textarea 
@@ -211,7 +295,7 @@ export default function Bookings() {
           <button onClick={resetForm} className="px-5 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-lg text-sm transition-colors">Cancel</button>
           <button 
             onClick={handleSave} 
-            disabled={!formData.customerId || !formData.date || !formData.service}
+            disabled={(!isNewCustomer && !formData.customerId) || (isNewCustomer && !customerData.fullName) || !formData.date || !formData.service}
             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-sm disabled:opacity-50 flex items-center gap-2 text-sm transition-colors"
           >
             <Check size={16} /> {editingId ? 'Save Changes' : 'Create Booking'}

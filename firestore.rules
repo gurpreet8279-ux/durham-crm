@@ -1,27 +1,26 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
       allow read, write: if false;
     }
-
+    
     function isSignedIn() {
       return request.auth != null;
     }
-
+    
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
-
+    
     function existing() {
       return resource.data;
     }
-
+    
     function incoming() {
       return request.resource.data;
     }
-
+    
     function isValidCustomer(data, userId) {
       return data.userId == userId
         && data.fullName is string && data.fullName.size() <= 100
@@ -33,7 +32,7 @@ service cloud.firestore {
         && (!("notes" in data) || (data.notes is string && data.notes.size() <= 1000))
         && (!("lastServiceDate" in data) || (data.lastServiceDate is string && data.lastServiceDate.size() <= 20));
     }
-
+    
     function isValidBooking(data, userId) {
       return data.userId == userId
         && data.customerId is string
@@ -42,12 +41,12 @@ service cloud.firestore {
         && (!("vehicle" in data) || (data.vehicle is string && data.vehicle.size() <= 100))
         && data.service is string && data.service.size() <= 100
         && (!("price" in data) || data.price is number)
-        && data.status in ["Pending", "Confirmed", "On The Way", "Completed", "Cancelled"]
-        && (!("paymentStatus" in data) || data.paymentStatus in ["Unpaid", "Paid"])
+        && data.status.matches('^(Pending|Confirmed|On The Way|Completed|Cancelled)$')
+        && (!("paymentStatus" in data) || data.paymentStatus.matches('^(Unpaid|Paid)$'))
         && (!("notes" in data) || (data.notes is string && data.notes.size() <= 1000))
         && (!("duration" in data) || data.duration is number);
     }
-
+    
     match /users/{userId}/customers/{customerId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       
@@ -59,7 +58,7 @@ service cloud.firestore {
         && incoming().keys().hasAll(["userId", "fullName", "createdAt", "updatedAt"])
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
-      
+        
       allow update: if isSignedIn()
         && request.auth.uid == userId
         && isValidId(userId)
@@ -72,7 +71,7 @@ service cloud.firestore {
         
       allow delete: if isSignedIn() && request.auth.uid == userId;
     }
-
+    
     match /users/{userId}/bookings/{bookingId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       
@@ -85,7 +84,7 @@ service cloud.firestore {
         && existsAfter(/databases/$(database)/documents/users/$(userId)/customers/$(incoming().customerId))
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
-      
+        
       allow update: if isSignedIn()
         && request.auth.uid == userId
         && isValidId(userId)

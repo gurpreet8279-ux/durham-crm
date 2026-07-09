@@ -43,8 +43,11 @@ export const syncToGoogleCalendar = async (booking: Booking, customer?: Customer
   });
   
   if (!response.ok) {
+    const txt = await response.text();
+    console.error(txt);
     throw new Error('Failed to sync to Calendar');
   }
+
   const data = await response.json();
   return data.id; // Return the event ID
 };
@@ -79,7 +82,12 @@ export const createSpreadsheet = async () => {
       body: JSON.stringify(body),
     });
   
-    if (!response.ok) throw new Error('Failed to create spreadsheet');
+    if (!response.ok) {
+      const txt = await response.text();
+      console.error(txt);
+      throw new Error(`Failed to create spreadsheet: ${txt}`);
+    }
+
     const data = await response.json();
     return data.spreadsheetId;
 };
@@ -122,6 +130,8 @@ export const syncToGoogleSheets = async (spreadsheetId: string, customers: Custo
   });
 
   if (!response.ok) {
+    const txt = await response.text();
+    console.error(txt);
     throw new Error('Failed to sync to sheets');
   }
 };

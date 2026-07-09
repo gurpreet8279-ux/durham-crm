@@ -32,11 +32,15 @@ export const initAuth = (
       
       // Update user doc
       if (result.user) {
-        await setDoc(doc(db, 'users', result.user.uid), {
-          email: result.user.email,
-          displayName: result.user.displayName,
-          lastLogin: new Date().toISOString()
-        }, { merge: true });
+        try {
+          await setDoc(doc(db, 'users', result.user.uid), {
+            email: result.user.email,
+            displayName: result.user.displayName,
+            lastLogin: new Date().toISOString()
+          }, { merge: true });
+        } catch (e) {
+          console.error("Failed to save user doc", e);
+        }
       }
     }
   }).catch((error) => {
@@ -57,6 +61,7 @@ export const initAuth = (
 
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
+    console.log("Attempting signInWithPopup...");
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
@@ -66,18 +71,24 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     
     // Update user doc
     if (result.user) {
-      await setDoc(doc(db, 'users', result.user.uid), {
-        email: result.user.email,
-        displayName: result.user.displayName,
-        lastLogin: new Date().toISOString()
-      }, { merge: true });
+      try {
+        await setDoc(doc(db, 'users', result.user.uid), {
+          email: result.user.email,
+          displayName: result.user.displayName,
+          lastLogin: new Date().toISOString()
+        }, { merge: true });
+      } catch (e) {
+        console.error("Failed to save user doc", e);
+      }
     }
     
     return { user: result.user, accessToken: credential.accessToken };
   } catch (error: any) {
     console.error('Popup sign in error:', error);
+    
+    // If it's a popup blocked error, or cross-origin opener policy error, fallback to redirect
     if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
-      console.log('Falling back to redirect...');
+      console.log('Falling back to signInWithRedirect...');
       await signInWithRedirect(auth, provider);
       return null; // Will redirect
     }

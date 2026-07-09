@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { initAuth, googleSignIn, logout } from '../lib/firebase';
-import { Crown, LogIn, AlertCircle } from 'lucide-react';
+import { Crown, AlertCircle, Info, RefreshCcw } from 'lucide-react';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [needsAuth, setNeedsAuth] = useState(true);
@@ -9,6 +9,7 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [helpSteps, setHelpSteps] = useState<string[]>([]);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -22,25 +23,84 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
         setNeedsAuth(true);
         setIsLoading(false);
         if (error) {
-          setErrorMsg(error.message || 'Authentication failed');
+          handleAuthError(error);
         }
       }
     );
     return () => unsubscribe();
   }, []);
 
+  const handleAuthError = (err: any) => {
+    console.error('Auth Error Full:', err);
+    let msg = err.message || 'An error occurred during sign in';
+    let steps: string[] = [];
+    
+    if (err.code === 'auth/unauthorized-domain') {
+      msg = `Domain not authorized for Firebase Auth.`;
+      steps = [
+        `1. Go to Firebase Console -> Authentication -> Settings -> Authorized Domains`,
+        `2. Click "Add Domain"`,
+        `3. Add this exact domain: ${window.location.hostname}`,
+        `4. If on Netlify, add your Netlify app domain.`
+      ];
+    } else if (err.code === 'auth/operation-not-allowed') {
+      msg = `Google Sign-In is not enabled.`;
+      steps = [
+        `1. Go to Firebase Console -> Authentication -> Sign-in method`,
+        `2. Click "Add new provider" -> Google`,
+        `3. Enable it and save.`
+      ];
+    } else if (err.code === 'auth/popup-blocked') {
+      msg = `Sign-in popup was blocked by your browser.`;
+      steps = [
+        `Please allow popups for this site. We will try to fall back to a full-page redirect.`
+      ];
+    } else if (err.message && err.message.includes('Cross-Origin')) {
+       msg = `Cross-Origin policy blocked the sign in.`;
+       steps = [
+         `This usually happens in preview iframes. Please deploy to Netlify or open the app in a new tab (outside of the AI Studio iframe).`
+       ];
+    } else if (err.code === 'auth/network-request-failed') {
+       msg = `Network error. Could not reach Firebase.`;
+       steps = [
+         `Please check your internet connection or any adblockers/firewalls that might block Firebase.`
+       ];
+    }
+    
+    setErrorMsg(msg);
+    setHelpSteps(steps);
+  };
+
   const handleLogin = async () => {
+    console.log("Login button clicked");
     setIsLoggingIn(true);
     setErrorMsg(null);
+    setHelpSteps([]);
+    
+    // Fallback timeout in case the promise never resolves/rejects (e.g., silent block)
+    const timeoutId = setTimeout(() => {
+      if (isLoggingIn) {
+        setIsLoggingIn(false);
+        setErrorMsg("Login attempt timed out. The popup might have been silently blocked by your browser.");
+        setHelpSteps([
+          "Please check your browser's popup blocker.",
+          "Try opening the application in a completely new tab.",
+          "If on mobile, try Safari/Chrome directly instead of an in-app browser."
+        ]);
+      }
+    }, 15000); // 15 seconds timeout
+
     try {
       const result = await googleSignIn();
+      clearTimeout(timeoutId);
       if (result) {
         setUser(result.user);
         setNeedsAuth(false);
       }
     } catch (err: any) {
-      console.error('Login failed:', err);
-      setErrorMsg(err.message || 'An error occurred during sign in');
+      clearTimeout(timeoutId);
+      console.error('Login failed catch block:', err);
+      handleAuthError(err);
     } finally {
       setIsLoggingIn(false);
     }
@@ -60,28 +120,46 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
   if (needsAuth) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50 p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
-          <div className="p-8 flex flex-col items-center text-center">
-            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200 mb-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
+          <div className="p-8 flex flex-col items-center text-center overflow-y-auto">
+            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200 mb-6 shrink-0">
               <Crown size={32} />
             </div>
             <h1 className="text-2xl font-bold text-slate-900 mb-2">Crown CRM</h1>
             <p className="text-slate-500 mb-8">Sign in to manage your mobile detailing business</p>
             
             {errorMsg && (
-              <div className="w-full mb-6 p-4 bg-red-50 text-red-700 rounded-lg text-sm flex items-start gap-3 text-left border border-red-100">
-                <AlertCircle className="shrink-0 mt-0.5" size={16} />
-                <span>{errorMsg}</span>
+              <div className="w-full mb-6 p-4 bg-red-50 text-red-800 rounded-xl text-sm flex flex-col gap-3 text-left border border-red-100 shadow-sm">
+                <div className="flex items-start gap-2 font-bold">
+                  <AlertCircle className="shrink-0 mt-0.5 text-red-600" size={18} />
+                  <span>{errorMsg}</span>
+                </div>
+                {helpSteps.length > 0 && (
+                  <div className="bg-white/50 rounded-lg p-3 space-y-2 mt-1">
+                    <p className="font-bold text-xs uppercase tracking-wider text-red-600">How to fix this:</p>
+                    <ul className="space-y-1.5 text-red-700">
+                      {helpSteps.map((step, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="opacity-50">•</span> 
+                          <span>{step}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
             
             <button 
               onClick={handleLogin}
               disabled={isLoggingIn}
-              className="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium hover:bg-slate-50 transition-colors disabled:opacity-50 mt-auto"
             >
               {isLoggingIn ? (
-                <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-700 rounded-full animate-spin"></div>
+                <>
+                  <RefreshCcw className="w-5 h-5 animate-spin text-blue-600" />
+                  Attempting Login...
+                </>
               ) : (
                 <>
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -96,7 +174,8 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
               )}
             </button>
           </div>
-          <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
+          <div className="bg-slate-50 p-4 text-center border-t border-slate-100 flex items-center justify-center gap-2">
+            <Info size={14} className="text-slate-400" />
             <p className="text-xs text-slate-500">Secure access via Firebase Auth</p>
           </div>
         </div>

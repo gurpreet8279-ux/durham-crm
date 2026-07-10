@@ -7,6 +7,7 @@ import { findOrCreateSpreadsheet, getSheetData, appendRow, updateRow, fetchWithA
 interface CRMContextType {
   user: User | null;
   loading: boolean;
+  authError: string | null;
   login: () => Promise<void>;
   customers: Customer[];
   addCustomer: (customer: Omit<Customer, 'id' | 'createdAt'>) => Promise<Customer>;
@@ -31,6 +32,7 @@ function generateId(prefix: string) {
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(null);
   const [sheetIds, setSheetIds] = useState<Record<string, number>>({});
   
@@ -42,6 +44,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubscribe = initAuth(
       async (u, token) => {
         setUser(u);
+        setAuthError(null);
         try {
           const id = await findOrCreateSpreadsheet();
           setSpreadsheetId(id);
@@ -55,8 +58,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSheetIds(ids);
           
           await loadData(id);
-        } catch (e) {
+        } catch (e: any) {
           console.error("Error setting up sheets", e);
+          if (e.message && e.message.includes('403')) {
+            setAuthError('Google Sheets access denied. Please sign out, then sign in again and ENSURE you check the boxes to grant access to Google Drive and Google Sheets during the sign-in process.');
+          } else {
+            setAuthError(e.message || 'Error connecting to Google Sheets.');
+          }
         }
         setLoading(false);
       },
@@ -66,6 +74,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBookings([]);
         setVehicles([]);
         setSpreadsheetId(null);
+        setAuthError(null);
         setLoading(false);
       }
     );
@@ -290,7 +299,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   return (
     <CRMContext.Provider value={{
-      user, loading, login,
+      user, loading, authError, login,
       customers, addCustomer, updateCustomer, deleteCustomer,
       bookings, addBooking, updateBooking, deleteBooking,
       vehicles, addVehicle, updateVehicle, deleteVehicle

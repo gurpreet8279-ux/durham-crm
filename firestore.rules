@@ -10,7 +10,7 @@ service cloud.firestore {
     }
     
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
     
     function existing() {
@@ -39,10 +39,10 @@ service cloud.firestore {
         && data.date is string && data.date.size() <= 20
         && (!("time" in data) || (data.time is string && data.time.size() <= 10))
         && (!("vehicle" in data) || (data.vehicle is string && data.vehicle.size() <= 100))
-        && data.service is string && data.service.size() <= 100
+        && data['service'] is string && data['service'].size() <= 100
         && (!("price" in data) || data.price is number)
-        && data.status.matches('^(Pending|Confirmed|On The Way|Completed|Cancelled)$')
-        && (!("paymentStatus" in data) || data.paymentStatus.matches('^(Unpaid|Paid)$'))
+        && data.status is string && data.status.matches('^(Pending|Confirmed|On The Way|Completed|Cancelled)$')
+        && (!("paymentStatus" in data) || (data.paymentStatus is string && data.paymentStatus.matches('^(Unpaid|Paid)$')))
         && (!("notes" in data) || (data.notes is string && data.notes.size() <= 1000))
         && (!("duration" in data) || data.duration is number);
     }
@@ -81,7 +81,6 @@ service cloud.firestore {
         && isValidId(bookingId)
         && isValidBooking(incoming(), userId)
         && incoming().keys().hasAll(["userId", "customerId", "date", "service", "status", "createdAt", "updatedAt"])
-        && existsAfter(/databases/$(database)/documents/users/$(userId)/customers/$(incoming().customerId))
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
         

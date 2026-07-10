@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map, Settings, LogOut } from 'lucide-react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import Bookings from './components/Bookings';
@@ -8,7 +9,8 @@ import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
 import AuthWrapper from './components/AuthWrapper';
 import { useCRM, CRMProvider } from './store/useCRM';
-import { logout } from './lib/firebase';
+
+const GOOGLE_CLIENT_ID = "286404423788-6095l0lg2o13bvioasq2dbscf3qimh7u.apps.googleusercontent.com";
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'parser' | 'admin'>('manifest');
@@ -35,7 +37,10 @@ function MainApp() {
           <h1 className="text-xl font-bold text-slate-900 mb-4">Authentication Error</h1>
           <p className="text-slate-600 mb-8 text-sm leading-relaxed">{authError}</p>
           <button
-            onClick={() => logout()}
+            onClick={() => {
+              localStorage.removeItem('google_access_token');
+              window.location.reload();
+            }}
             className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg px-4 py-3 transition-colors"
           >
             <LogOut size={18} /> Sign Out and Try Again
@@ -78,7 +83,8 @@ function MainApp() {
           <button
             onClick={() => {
               if (window.confirm('Are you sure you want to log out?')) {
-                logout();
+                localStorage.removeItem('google_access_token');
+                window.location.reload();
               }
             }}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
@@ -99,7 +105,8 @@ function MainApp() {
           <button
             onClick={() => {
               if (window.confirm('Are you sure you want to log out?')) {
-                logout();
+                localStorage.removeItem('google_access_token');
+                window.location.reload();
               }
             }}
             className="text-slate-500 p-2"
@@ -148,10 +155,12 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AuthWrapper>
-      <CRMProvider>
-        <MainApp />
-      </CRMProvider>
-    </AuthWrapper>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <AuthWrapper>
+        <CRMProvider>
+          <MainApp />
+        </CRMProvider>
+      </AuthWrapper>
+    </GoogleOAuthProvider>
   );
 }

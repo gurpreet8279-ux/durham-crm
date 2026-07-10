@@ -1,8 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Customer, Booking, Vehicle, Service, Setting } from '../types';
-import { auth, initAuth, googleSignIn } from '../lib/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
 import { findOrCreateSpreadsheet, getSheetData, appendRow, updateRow, fetchWithAuth } from '../lib/sheets';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+}
 
 interface CRMContextType {
   user: User | null;
@@ -41,34 +45,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   useEffect(() => {
-    const unsubscribe = initAuth(
-      async (u, token) => {
-        setUser(u);
-        setAuthError(null);
-        try {
-          const id = await findOrCreateSpreadsheet();
-          setSpreadsheetId(id);
-          
-          // Get sheet IDs for row deletion
-          const meta = await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title)`);
-          const ids: Record<string, number> = {};
-          meta.sheets.forEach((s: any) => {
-            ids[s.properties.title] = s.properties.sheetId;
-          });
-          setSheetIds(ids);
-          
-          await loadData(id);
-        } catch (e: any) {
-          console.error("Error setting up sheets", e);
-          if (e.message && e.message.includes('403')) {
-            setAuthError('Google Sheets access denied. Please sign out, then sign in again and ENSURE you check the boxes to grant access to Google Drive and Google Sheets during the sign-in process.');
-          } else {
-            setAuthError(e.message || 'Error connecting to Google Sheets.');
-          }
-        }
-        setLoading(false);
-      },
-      () => {
+    const initializeApp = async () => {
+      const token = localStorage.getItem('google_access_token');
+      if (!token) {
         setUser(null);
         setCustomers([]);
         setBookings([]);
@@ -76,9 +55,67 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSpreadsheetId(null);
         setAuthError(null);
         setLoading(false);
+        return;
       }
-    );
-    return () => unsubscribe();
+
+      try {
+        const tokenInfoRes = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}`);
+        if (!tokenInfoRes.ok) {
+          throw new Error('token might be expired');
+        }
+        
+        const tokenInfo = await tokenInfoRes.json();
+        const scopes = tokenInfo.scope || '';
+        if (!scopes.includes('auth/drive.file') || !scopes.includes('auth/spreadsheets')) {
+          throw new Error('missing_scopes');
+        }
+
+        const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (!userInfoRes.ok) {
+          throw new Error('Failed to fetch user info - token might be expired');
+        }
+        
+        const userInfo = await userInfoRes.json();
+        setUser({
+          id: userInfo.sub,
+          email: userInfo.email,
+          name: userInfo.name
+        });
+        setAuthError(null);
+
+        const id = await findOrCreateSpreadsheet();
+        setSpreadsheetId(id);
+        
+        // Get sheet IDs for row deletion
+        const meta = await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title)`);
+        const ids: Record<string, number> = {};
+        meta.sheets.forEach((s: any) => {
+          ids[s.properties.title] = s.properties.sheetId;
+        });
+        setSheetIds(ids);
+        
+        await loadData(id);
+      } catch (e: any) {
+        console.error("Error setting up sheets", e);
+        if (e.message && e.message.includes('403')) {
+          setAuthError('Google Sheets access denied. The API might not be enabled on your Google Cloud Project, or the file is restricted.');
+        } else if (e.message && e.message.includes('missing_scopes')) {
+          setAuthError('Permissions missing. Please Sign Out, then sign in again and ENSURE you check the boxes to grant access to Google Drive and Google Sheets on the consent screen.');
+        } else if (e.message && e.message.includes('token might be expired')) {
+          localStorage.removeItem('google_access_token');
+          window.location.reload();
+        } else {
+          setAuthError(e.message || 'Error connecting to Google Sheets.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeApp();
   }, []);
 
   useEffect(() => {
@@ -93,13 +130,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [spreadsheetId]);
 
   const login = async () => {
-    setLoading(true);
-    try {
-      await googleSignIn();
-    } catch (e) {
-      console.error(e);
-      setLoading(false);
-    }
+    // handled by wrapper
   };
 
   const loadData = async (id: string) => {

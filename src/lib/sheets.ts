@@ -1,4 +1,4 @@
-import { getAccessToken } from './firebase';
+import { getAccessToken } from './auth';
 
 const SPREADSHEET_NAME = 'Durham CRM Database';
 

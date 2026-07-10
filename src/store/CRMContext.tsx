@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Customer, Booking } from '../types';
-import { db, auth } from '../lib/firebase';
-import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, query } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { Customer, Booking, Vehicle, Service, Setting } from '../types';
+import { auth, initAuth, googleSignIn } from '../lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { findOrCreateSpreadsheet, getSheetData, appendRow, updateRow, fetchWithAuth } from '../lib/sheets';
 
 interface CRMContextType {
+  user: User | null;
+  loading: boolean;
+  login: () => Promise<void>;
   customers: Customer[];
   addCustomer: (customer: Omit<Customer, 'id' | 'createdAt'>) => Promise<Customer>;
   updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
@@ -13,6 +16,10 @@ interface CRMContextType {
   addBooking: (booking: Omit<Booking, 'id' | 'createdAt'>) => Promise<Booking>;
   updateBooking: (id: string, updates: Partial<Booking>) => Promise<void>;
   deleteBooking: (id: string) => Promise<void>;
+  vehicles: Vehicle[];
+  addVehicle: (vehicle: Omit<Vehicle, 'id' | 'createdAt'>) => Promise<Vehicle>;
+  updateVehicle: (id: string, updates: Partial<Vehicle>) => Promise<void>;
+  deleteVehicle: (id: string) => Promise<void>;
 }
 
 const CRMContext = createContext<CRMContextType | null>(null);
@@ -22,157 +29,271 @@ function generateId(prefix: string) {
 }
 
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(null);
+  const [sheetIds, setSheetIds] = useState<Record<string, number>>({});
+  
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUserId(user ? user.uid : null);
-    });
+    const unsubscribe = initAuth(
+      async (u, token) => {
+        setUser(u);
+        try {
+          const id = await findOrCreateSpreadsheet();
+          setSpreadsheetId(id);
+          
+          // Get sheet IDs for row deletion
+          const meta = await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties(sheetId,title)`);
+          const ids: Record<string, number> = {};
+          meta.sheets.forEach((s: any) => {
+            ids[s.properties.title] = s.properties.sheetId;
+          });
+          setSheetIds(ids);
+          
+          await loadData(id);
+        } catch (e) {
+          console.error("Error setting up sheets", e);
+        }
+        setLoading(false);
+      },
+      () => {
+        setUser(null);
+        setCustomers([]);
+        setBookings([]);
+        setVehicles([]);
+        setSpreadsheetId(null);
+        setLoading(false);
+      }
+    );
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!userId) {
-      setCustomers([]);
-      setBookings([]);
-      return;
+    if (!spreadsheetId) return;
+    
+    // Poll for changes every 30 seconds
+    const interval = setInterval(() => {
+      loadData(spreadsheetId);
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [spreadsheetId]);
+
+  const login = async () => {
+    setLoading(true);
+    try {
+      await googleSignIn();
+    } catch (e) {
+      console.error(e);
+      setLoading(false);
     }
+  };
 
-    const customersRef = collection(db, 'users', userId, 'customers');
-    const unsubscribeCustomers = onSnapshot(query(customersRef), (snapshot) => {
-      const data: Customer[] = [];
-      snapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as Customer);
-      });
-      // sort by createdAt descending
-      data.sort((a, b) => {
-        const aDate = typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 0;
-        const bDate = typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 0;
-        return bDate - aDate;
-      });
-      setCustomers(data);
-    }, (err) => {
-      console.error("Customers sync error:", err);
-    });
+  const loadData = async (id: string) => {
+    try {
+      const [customersData, bookingsData, vehiclesData] = await Promise.all([
+        getSheetData(id, 'Customers!A2:K'),
+        getSheetData(id, 'Bookings!A2:N'),
+        getSheetData(id, 'Vehicles!A2:G')
+      ]);
 
-    const bookingsRef = collection(db, 'users', userId, 'bookings');
-    const unsubscribeBookings = onSnapshot(query(bookingsRef), (snapshot) => {
-      const data: Booking[] = [];
-      snapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as Booking);
-      });
-      data.sort((a, b) => {
-        const aDate = typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 0;
-        const bDate = typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 0;
-        return bDate - aDate;
-      });
-      setBookings(data);
-    }, (err) => {
-      console.error("Bookings sync error:", err);
-    });
+      setCustomers(customersData.map(row => ({
+        id: row[0] || '',
+        fullName: row[1] || '',
+        phoneNumber: row[2] || '',
+        email: row[3] || '',
+        address: row[4] || '',
+        city: row[5] || '',
+        notes: row[6] || '',
+        createdAt: row[7] || '',
+        lastServiceDate: row[8] || '',
+        vehicles: (() => {
+          try {
+            return row[10] ? JSON.parse(row[10]) : [];
+          } catch (e) {
+            return [];
+          }
+        })()
+      })).reverse());
 
-    return () => {
-      unsubscribeCustomers();
-      unsubscribeBookings();
-    };
-  }, [userId]);
+      setBookings(bookingsData.map(row => ({
+        id: row[0] || '',
+        customerId: row[1] || '',
+        vehicleId: row[2] || '',
+        date: row[3] || '',
+        time: row[4] || '',
+        duration: row[5] ? parseInt(row[5]) : undefined,
+        service: row[6] || '',
+        price: row[7] ? parseFloat(row[7]) : undefined,
+        paymentStatus: row[8] || 'Unpaid',
+        status: row[9] || 'Pending',
+        notes: row[10] || '',
+        createdAt: row[11] || '',
+        calendarEventId: row[12] || '',
+      })).reverse());
 
-  const addCustomer = async (customerData: Omit<Customer, 'id' | 'createdAt'>) => {
-    if (!userId) throw new Error("Not logged in");
-    const id = generateId('cus');
+      setVehicles(vehiclesData.map(row => ({
+        id: row[0] || '',
+        customerId: row[1] || '',
+        makeModel: row[2] || '',
+        year: row[3] || '',
+        color: row[4] || '',
+        licensePlate: row[5] || '',
+        createdAt: row[6] || '',
+      })));
+    } catch (e) {
+      console.error("Failed to load data from sheets", e);
+    }
+  };
+
+  const findRowIndex = async (sheetName: string, id: string) => {
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const data = await getSheetData(spreadsheetId, `${sheetName}!A:A`);
+    const rowIndex = data.findIndex(row => row[0] === id);
+    if (rowIndex === -1) throw new Error("Row not found");
+    return rowIndex + 1; // 1-indexed for sheets
+  };
+
+  const addCustomer = async (data: Omit<Customer, 'id' | 'createdAt'>) => {
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const newId = generateId('cus');
+    const now = new Date().toISOString();
     
-    // Default values if undefined
-    const firestoreData: any = {
-      userId,
-      fullName: customerData.fullName || "",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-    if (customerData.phoneNumber) firestoreData.phoneNumber = customerData.phoneNumber;
-    if (customerData.email) firestoreData.email = customerData.email;
-    if (customerData.address) firestoreData.address = customerData.address;
-    if (customerData.city) firestoreData.city = customerData.city;
-    if (customerData.vehicles) firestoreData.vehicles = customerData.vehicles;
-    if (customerData.notes) firestoreData.notes = customerData.notes;
-    if (customerData.lastServiceDate) firestoreData.lastServiceDate = customerData.lastServiceDate;
-
-    await setDoc(doc(db, 'users', userId, 'customers', id), firestoreData);
+    const row = [
+      newId, data.fullName, data.phoneNumber, data.email || '', 
+      data.address || '', data.city || '', data.notes || '', 
+      now, data.lastServiceDate || '', now, JSON.stringify(data.vehicles || [])
+    ];
     
-    return {
-      ...customerData,
-      id,
-      createdAt: new Date().toISOString()
-    } as Customer;
+    await appendRow(spreadsheetId, 'Customers', row);
+    await loadData(spreadsheetId);
+    
+    return { ...data, id: newId, createdAt: now, vehicles: data.vehicles || [] } as Customer;
   };
 
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    if (!userId) return;
-    const updateData: any = { ...updates, updatedAt: serverTimestamp() };
-    await updateDoc(doc(db, 'users', userId, 'customers', id), updateData);
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const rowIndex = await findRowIndex('Customers', id);
+    const existing = customers.find(c => c.id === id);
+    if (!existing) return;
+    
+    const merged = { ...existing, ...updates };
+    const now = new Date().toISOString();
+    const row = [
+      merged.id, merged.fullName, merged.phoneNumber, merged.email || '', 
+      merged.address || '', merged.city || '', merged.notes || '', 
+      merged.createdAt, merged.lastServiceDate || '', now, JSON.stringify(merged.vehicles || [])
+    ];
+    
+    await updateRow(spreadsheetId, `Customers!A${rowIndex}:K${rowIndex}`, row);
+    await loadData(spreadsheetId);
   };
 
-  const deleteCustomer = async (id: string) => {
-    if (!userId) return;
-    await deleteDoc(doc(db, 'users', userId, 'customers', id));
+  const deleteRow = async (sheetName: string, id: string) => {
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const rowIndex = await findRowIndex(sheetName, id);
+    const sheetId = sheetIds[sheetName];
+    if (sheetId === undefined) throw new Error("Sheet ID not found");
+    
+    await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: sheetId,
+              dimension: 'ROWS',
+              startIndex: rowIndex - 1,
+              endIndex: rowIndex
+            }
+          }
+        }]
+      })
+    });
+    await loadData(spreadsheetId);
   };
 
-  const addBooking = async (bookingData: Omit<Booking, 'id' | 'createdAt'>) => {
-    if (!userId) throw new Error("Not logged in");
-    const id = generateId('bkg');
+  const deleteCustomer = async (id: string) => deleteRow('Customers', id);
 
-    const firestoreData: any = {
-      userId,
-      customerId: bookingData.customerId,
-      date: bookingData.date,
-      service: bookingData.service,
-      status: bookingData.status,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    };
-    if (bookingData.time) firestoreData.time = bookingData.time;
-    if (bookingData.vehicle) firestoreData.vehicle = bookingData.vehicle;
-    if (bookingData.price) firestoreData.price = bookingData.price;
-    if (bookingData.paymentStatus) firestoreData.paymentStatus = bookingData.paymentStatus;
-    if (bookingData.notes) firestoreData.notes = bookingData.notes;
-    if (bookingData.duration) firestoreData.duration = bookingData.duration;
-
-    await setDoc(doc(db, 'users', userId, 'bookings', id), firestoreData);
-
-    return {
-      ...bookingData,
-      id,
-      createdAt: new Date().toISOString()
-    } as Booking;
+  const addBooking = async (data: Omit<Booking, 'id' | 'createdAt'>) => {
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const newId = generateId('bkg');
+    const now = new Date().toISOString();
+    
+    const row = [
+      newId, data.customerId, data.vehicleId || '', data.date, data.time || '',
+      data.duration || '', data.service, data.price || '', data.paymentStatus || '',
+      data.status, data.notes || '', now, data.calendarEventId || '', now
+    ];
+    
+    await appendRow(spreadsheetId, 'Bookings', row);
+    await loadData(spreadsheetId);
+    return { ...data, id: newId, createdAt: now } as Booking;
   };
 
   const updateBooking = async (id: string, updates: Partial<Booking>) => {
-    if (!userId) return;
-    const updateData: any = { ...updates, updatedAt: serverTimestamp() };
-    await updateDoc(doc(db, 'users', userId, 'bookings', id), updateData);
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const rowIndex = await findRowIndex('Bookings', id);
+    const existing = bookings.find(b => b.id === id);
+    if (!existing) return;
     
-    // Auto-update customer history if completed
-    if (updates.status === 'Completed' || updates.status === 'Paid') {
-      const bkg = bookings.find(b => b.id === id);
-      if (bkg && bkg.customerId) {
-        // Need to pass the actual date, here we just use bkg.date 
-        // if updates doesn't have it
-        const finalDate = updates.date || bkg.date;
-        await updateCustomer(bkg.customerId, { lastServiceDate: finalDate });
-      }
-    }
+    const merged = { ...existing, ...updates };
+    const now = new Date().toISOString();
+    const row = [
+      merged.id, merged.customerId, merged.vehicleId || '', merged.date, merged.time || '',
+      merged.duration || '', merged.service, merged.price || '', merged.paymentStatus || '',
+      merged.status, merged.notes || '', merged.createdAt, merged.calendarEventId || '', now
+    ];
+    
+    await updateRow(spreadsheetId, `Bookings!A${rowIndex}:N${rowIndex}`, row);
+    await loadData(spreadsheetId);
   };
 
-  const deleteBooking = async (id: string) => {
-    if (!userId) return;
-    await deleteDoc(doc(db, 'users', userId, 'bookings', id));
+  const deleteBooking = async (id: string) => deleteRow('Bookings', id);
+
+  const addVehicle = async (data: Omit<Vehicle, 'id' | 'createdAt'>) => {
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const newId = generateId('veh');
+    const now = new Date().toISOString();
+    
+    const row = [
+      newId, data.customerId, data.makeModel, data.year || '',
+      data.color || '', data.licensePlate || '', now
+    ];
+    
+    await appendRow(spreadsheetId, 'Vehicles', row);
+    await loadData(spreadsheetId);
+    return { ...data, id: newId, createdAt: now } as Vehicle;
   };
+
+  const updateVehicle = async (id: string, updates: Partial<Vehicle>) => {
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const rowIndex = await findRowIndex('Vehicles', id);
+    const existing = vehicles.find(v => v.id === id);
+    if (!existing) return;
+    
+    const merged = { ...existing, ...updates };
+    const row = [
+      merged.id, merged.customerId, merged.makeModel, merged.year || '',
+      merged.color || '', merged.licensePlate || '', existing.createdAt || new Date().toISOString()
+    ];
+    
+    await updateRow(spreadsheetId, `Vehicles!A${rowIndex}:G${rowIndex}`, row);
+    await loadData(spreadsheetId);
+  };
+
+  const deleteVehicle = async (id: string) => deleteRow('Vehicles', id);
 
   return (
     <CRMContext.Provider value={{
+      user, loading, login,
       customers, addCustomer, updateCustomer, deleteCustomer,
-      bookings, addBooking, updateBooking, deleteBooking
+      bookings, addBooking, updateBooking, deleteBooking,
+      vehicles, addVehicle, updateVehicle, deleteVehicle
     }}>
       {children}
     </CRMContext.Provider>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useGoogleLogin } from '@react-oauth/google';
 import { Crown } from 'lucide-react';
+import { initAuth, googleSignIn } from '../lib/firebaseAuth';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [needsAuth, setNeedsAuth] = useState(true);
@@ -8,30 +8,40 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
+    // Check local storage as a quick initial check, then wait for Firebase
     const token = localStorage.getItem('google_access_token');
     if (token) {
       setNeedsAuth(false);
     }
-    setIsInitialized(true);
+    
+    const unsubscribe = initAuth(
+      (_user, token) => {
+        setNeedsAuth(false);
+        setIsInitialized(true);
+      },
+      () => {
+        if (!localStorage.getItem('google_access_token')) {
+          setNeedsAuth(true);
+        }
+        setIsInitialized(true);
+      }
+    );
+    
+    return () => unsubscribe();
   }, []);
 
-  const login = useGoogleLogin({
-    onSuccess: (tokenResponse: any) => {
-      localStorage.setItem('google_access_token', tokenResponse.access_token);
-      setNeedsAuth(false);
-      setIsLoggingIn(false);
-    },
-    onError: (error) => {
-      console.error('Login Failed:', error);
-      setIsLoggingIn(false);
-    },
-    scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets',
-    prompt: 'consent'
-  });
-
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setIsLoggingIn(true);
-    login();
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        setNeedsAuth(false);
+      }
+    } catch (error) {
+      console.error('Login Failed:', error);
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   if (!isInitialized) {

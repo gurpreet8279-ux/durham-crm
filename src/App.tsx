@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map, Settings, LogOut } from 'lucide-react';
-import { GoogleOAuthProvider } from '@react-oauth/google';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import Bookings from './components/Bookings';
@@ -9,8 +8,6 @@ import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
 import AuthWrapper from './components/AuthWrapper';
 import { useCRM, CRMProvider } from './store/useCRM';
-
-const GOOGLE_CLIENT_ID = "286404423788-6095l0lg2o13bvioasq2dbscf3qimh7u.apps.googleusercontent.com";
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'parser' | 'admin'>('manifest');
@@ -39,6 +36,7 @@ function MainApp() {
           <button
             onClick={() => {
               localStorage.removeItem('google_access_token');
+              import('./lib/firebaseAuth').then(m => m.logout());
               window.location.reload();
             }}
             className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg px-4 py-3 transition-colors"
@@ -84,6 +82,7 @@ function MainApp() {
             onClick={() => {
               if (window.confirm('Are you sure you want to log out?')) {
                 localStorage.removeItem('google_access_token');
+                import('./lib/firebaseAuth').then(m => m.logout());
                 window.location.reload();
               }
             }}
@@ -106,6 +105,7 @@ function MainApp() {
             onClick={() => {
               if (window.confirm('Are you sure you want to log out?')) {
                 localStorage.removeItem('google_access_token');
+                import('./lib/firebaseAuth').then(m => m.logout());
                 window.location.reload();
               }
             }}
@@ -155,12 +155,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <AuthWrapper>
-        <CRMProvider>
-          <MainApp />
-        </CRMProvider>
-      </AuthWrapper>
-    </GoogleOAuthProvider>
+    <AuthWrapper>
+      <CRMProvider>
+        <MainApp />
+      </CRMProvider>
+    </AuthWrapper>
   );
 }

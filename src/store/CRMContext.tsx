@@ -106,6 +106,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setAuthError('Permissions missing. Please Sign Out, then sign in again and ENSURE you check the boxes to grant access to Google Drive and Google Sheets on the consent screen.');
         } else if (e.message && e.message.includes('token might be expired')) {
           localStorage.removeItem('google_access_token');
+          import('../lib/firebaseAuth').then(m => m.logout());
           window.location.reload();
         } else {
           setAuthError(e.message || 'Error connecting to Google Sheets.');

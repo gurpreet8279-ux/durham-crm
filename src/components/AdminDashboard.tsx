@@ -23,7 +23,8 @@ export default function AdminDashboard() {
         <p className="text-sm text-slate-600 mb-4 leading-relaxed">
           You can automatically pull bookings from your Google Form without setting up complex APIs. 
           Simply go to your Google Sheet (where form responses are saved), click <strong>File &gt; Share &gt; Publish to web</strong>, 
-          select <strong>Comma-separated values (.csv)</strong>, and paste the generated link below.
+          select <strong>Comma-separated values (.csv)</strong>, and paste the generated link below. 
+          <br/><span className="text-amber-600 font-medium mt-2 inline-block">Note: Google can take up to 5 minutes to update the published CSV after a new form is submitted. If you don't see it immediately, wait a few minutes and try again.</span>
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3 items-end">

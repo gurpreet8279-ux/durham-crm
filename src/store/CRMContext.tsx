@@ -98,7 +98,11 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     setIsSyncing(true);
     try {
-      const response = await fetch(sheetCsvUrl);
+      const urlWithCacheBuster = sheetCsvUrl.includes('?') 
+        ? `${sheetCsvUrl}&_t=${new Date().getTime()}`
+        : `${sheetCsvUrl}?_t=${new Date().getTime()}`;
+        
+      const response = await fetch(urlWithCacheBuster, { cache: 'no-store' });
       if (!response.ok) throw new Error("Failed to fetch CSV");
       
       const csvText = await response.text();

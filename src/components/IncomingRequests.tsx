@@ -101,12 +101,12 @@ export default function IncomingRequests() {
         </div>
         <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg mt-4 text-sm text-blue-900">
           <h4 className="font-bold mb-2">How to connect your Google Form:</h4>
-          <ol className="list-decimal pl-5 space-y-1 text-blue-800">
-            <li>Create a new Google Form with the fields: Full Name, Phone, Email, Address, City, Vehicle, Service, Date, Time, Notes.</li>
-            <li>In the Form Responses tab, click "Link to Sheets".</li>
-            <li>Select "Select existing spreadsheet" and choose the <strong>Durham CRM Database</strong> file.</li>
-            <li>Ensure the new sheet in the spreadsheet is named <strong>Form Responses 1</strong>.</li>
-            <li>New submissions will automatically appear here!</li>
+          <ol className="list-decimal pl-5 space-y-2 text-blue-800">
+            <li>Create a new Google Form with fields like: Name, Phone, Email, Address, Vehicle, Service, Date, Time.</li>
+            <li>In the Form Responses tab, click <strong>Link to Sheets</strong> to create a Google Sheet.</li>
+            <li>Open that Google Sheet, go to <strong>File &gt; Share &gt; Publish to web</strong>.</li>
+            <li>Select <strong>Comma-separated values (.csv)</strong> and click Publish.</li>
+            <li>Copy the generated link and paste it into the <strong>Admin</strong> tab of this CRM!</li>
           </ol>
         </div>
       </div>

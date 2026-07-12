@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map as MapIcon, Settings } from 'lucide-react';
+import { Toaster } from 'react-hot-toast';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import Bookings from './components/Bookings';
@@ -8,6 +9,7 @@ import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
 import AuthWrapper from './components/AuthWrapper';
 import { useCRM, CRMProvider } from './store/useCRM';
+import { DialogProvider } from './components/DialogProvider';
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'parser' | 'admin'>('manifest');
@@ -111,9 +113,12 @@ function MainApp() {
 export default function App() {
   return (
     <AuthWrapper>
-      <CRMProvider>
-        <MainApp />
-      </CRMProvider>
+      <DialogProvider>
+        <CRMProvider>
+          <MainApp />
+          <Toaster position="bottom-right" />
+        </CRMProvider>
+      </DialogProvider>
     </AuthWrapper>
   );
 }

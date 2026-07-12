@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useCRM } from '../store/useCRM';
 import { Calendar as CalendarIcon, MapPin, Phone, Car, DollarSign, Clock, Navigation, CheckCircle, RefreshCcw, Bell } from 'lucide-react';
+import { triggerSmsForStatusChange } from '../lib/sms';
 
 export default function Manifest() {
   const { bookings, customers, updateBooking } = useCRM();
@@ -75,23 +76,10 @@ export default function Manifest() {
     const booking = bookings.find(b => b.id === jobId);
     const customer = getCustomer(booking?.customerId || '');
     
-    if (customer?.phoneNumber && booking) {
-      let message = '';
-      const dateStr = new Date(booking.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
-      
-      if (next === 'Confirmed') {
-        message = `Hello ${customer.fullName},\n\nYour appointment with Durham's Crown Mobile Detailing has been confirmed for ${dateStr} at ${formatTime(booking.time)}.\n\nWe appreciate the opportunity to care for your vehicle and look forward to providing you with exceptional service.\n\nThank you for choosing\nDurham's Crown Mobile Detailing.`;
-      } else if (next === 'Reminder Sent') {
-        message = `Hello ${customer.fullName}, this is a reminder that your Durham’s Crown Mobile Detailing appointment is scheduled for ${dateStr} at ${formatTime(booking.time)}. Please ensure your vehicle is accessible and remove any personal belongings before our arrival. We look forward to providing exceptional service.`;
-      } else if (next === 'On The Way') {
-        message = `Hello ${customer.fullName},\n\nYour Durham’s Crown Mobile Detailing technician is currently on the way and will be arriving shortly for your scheduled service.\n\nTo ensure the best possible detailing experience, please have your vehicle accessible and remove any personal belongings or valuables from the interior prior to our arrival.\n\nWe appreciate your trust in Durham’s Crown Mobile Detailing and look forward to delivering exceptional care for your vehicle.`;
-      } else if (next === 'Completed') {
-        message = `Thank you for choosing Durham’s Crown mobile detailing ! We just wanted to follow up and make sure you were happy with the service. If you have a moment, we’d greatly appreciate a google review—it goes a long way in helping our small business grow, https://search.google.com/local/writereview?placeid=ChIJrd4LoTESpQIRnrIgBZgIU3E&source=g.page.m.ia._&laa=nmx-review-solicitation-ia2\n\nThank you for your support!`;
-      }
-
-      if (message) {
+    if (customer && booking) {
+      const smsTriggered = triggerSmsForStatusChange(booking, customer, next as any);
+      if (smsTriggered) {
         setSmsStatus(prev => ({ ...prev, [jobId]: 'Opening SMS App...' }));
-        window.open(`sms:${customer.phoneNumber}?body=${encodeURIComponent(message)}`, '_blank');
         setTimeout(() => {
           setSmsStatus(prev => {
             const newStatus = { ...prev };

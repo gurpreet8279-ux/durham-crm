@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Customer, Booking, Vehicle, Service, Setting, IncomingRequest } from '../types';
 import Papa from 'papaparse';
+import toast from 'react-hot-toast';
 
 export interface User {
   id: string;
@@ -92,7 +93,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
   const syncFromGoogleForm = async () => {
     if (!sheetCsvUrl) {
-      alert("Please enter a Google Sheet CSV URL in the Admin tab.");
+      toast.error("Please enter a Google Sheet CSV URL in the Admin tab.");
       return;
     }
     
@@ -160,24 +161,24 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
              const toAdd = newRequests.filter(r => !existingIds.has(r.id));
              
              if (toAdd.length === 0) {
-               alert("No new requests found. You're all caught up!");
+               toast.success("No new requests found. You're all caught up!");
                return prev;
              }
              
              const updated = [...prev, ...toAdd];
              triggerSave({ customers, bookings, vehicles, incomingRequests: updated, sheetCsvUrl });
-             alert(`Successfully imported ${toAdd.length} new request(s)!`);
+             toast.success(`Successfully imported ${toAdd.length} new request(s)!`);
              return updated;
           });
         },
         error: (error) => {
           console.error("CSV Parse Error:", error);
-          alert("Error parsing the Google Form data.");
+          toast.error("Error parsing the Google Form data.");
         }
       });
     } catch (error) {
       console.error("Sync Error:", error);
-      alert("Failed to sync from Google Forms. Please ensure you copied the 'Published to the web (CSV)' URL correctly.");
+      toast.error("Failed to sync from Google Forms. Please ensure you copied the 'Published to the web (CSV)' URL correctly.");
     } finally {
       setIsSyncing(false);
     }
@@ -205,7 +206,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteCustomer = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this customer? This action cannot be undone.")) return;
     setCustomers(prev => {
       const updated = prev.filter(c => c.id !== id);
       triggerSave({ customers: updated, bookings, vehicles, incomingRequests, sheetCsvUrl });
@@ -235,7 +235,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteBooking = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this booking? This action cannot be undone.")) return;
     setBookings(prev => {
       const updated = prev.filter(b => b.id !== id);
       triggerSave({ customers, bookings: updated, vehicles, incomingRequests, sheetCsvUrl });
@@ -265,7 +264,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteVehicle = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this vehicle? This action cannot be undone.")) return;
     setVehicles(prev => {
       const updated = prev.filter(v => v.id !== id);
       triggerSave({ customers, bookings, vehicles: updated, incomingRequests, sheetCsvUrl });

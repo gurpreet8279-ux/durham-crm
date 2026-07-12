@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { Customer } from '../types';
 import { useCRM } from '../store/useCRM';
 import { Search, Plus, User, MapPin, Phone, Car, Edit2, Trash2, X, Check } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useDialog } from './DialogProvider';
 
 export default function Customers() {
   const { customers, addCustomer, updateCustomer, deleteCustomer } = useCRM();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const { confirm } = useDialog();
 
   // Form State
   const [formData, setFormData] = useState<Partial<Customer>>({
@@ -44,10 +47,19 @@ export default function Customers() {
 
     if (editingId) {
       updateCustomer(editingId, formData);
+      toast.success("Customer updated");
     } else {
       addCustomer(formData as Omit<Customer, 'id' | 'createdAt'>);
+      toast.success("Customer created");
     }
     resetForm();
+  };
+
+  const handleDelete = async (id: string) => {
+    if (await confirm('Delete Customer', 'Are you sure you want to delete this customer?')) {
+      deleteCustomer(id);
+      toast.success("Customer deleted");
+    }
   };
 
   const addVehicle = () => {
@@ -253,7 +265,7 @@ export default function Customers() {
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => handleEdit(customer)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Edit2 size={16} /></button>
-                        <button onClick={() => {if(confirm('Delete customer?')) deleteCustomer(customer.id)}} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={16} /></button>
+                        <button onClick={() => handleDelete(customer.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={16} /></button>
                       </div>
                     </td>
                   </tr>

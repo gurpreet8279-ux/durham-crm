@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { useCRM } from '../store/useCRM';
 import { Calendar, Check, Trash2, Car, Loader2, RefreshCw } from 'lucide-react';
 import { IncomingRequest } from '../types';
+import toast from 'react-hot-toast';
+import { useDialog } from './DialogProvider';
 
 export default function IncomingRequests() {
   const { addCustomer, addBooking, customers, incomingRequests, updateIncomingRequest, refreshRequests } = useCRM();
   const [processing, setProcessing] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const { confirm } = useDialog();
 
   // Only show pending requests
   const pendingRequests = incomingRequests.filter(req => req.status !== 'Approved' && req.status !== 'Dismissed' && req.fullName);
@@ -54,23 +57,25 @@ export default function IncomingRequests() {
 
       // 3. Mark request as Approved in Sheets
       await updateIncomingRequest(req.id, 'Approved');
+      toast.success('Request approved & synced');
 
     } catch (error) {
       console.error('Error approving request:', error);
-      alert('Failed to approve request. Please try again.');
+      toast.error('Failed to approve request. Please try again.');
     } finally {
       setProcessing(null);
     }
   };
 
   const handleDismiss = async (req: IncomingRequest) => {
-    if (!window.confirm('Are you sure you want to dismiss this request?')) return;
+    if (!(await confirm('Dismiss Request', 'Are you sure you want to dismiss this request?'))) return;
     setProcessing(req.id);
     try {
       await updateIncomingRequest(req.id, 'Dismissed');
+      toast.success('Request dismissed');
     } catch (error) {
       console.error('Error dismissing request:', error);
-      alert('Failed to dismiss request.');
+      toast.error('Failed to dismiss request.');
     } finally {
       setProcessing(null);
     }

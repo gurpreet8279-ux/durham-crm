@@ -25,6 +25,7 @@
     "papaparse": "^5.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "twilio": "^6.0.2",

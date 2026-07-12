@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Booking, BookingStatus, Customer } from '../types';
 import { useCRM } from '../store/useCRM';
 import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useDialog } from './DialogProvider';
+import { triggerSmsForStatusChange } from '../lib/sms';
 
 const STATUS_OPTIONS: BookingStatus[] = [
   'New', 'Confirmed', 'Reminder Sent', 'Technician Assigned', 'On The Way', 'In Progress', 'Completed', 'Paid', 'Cancelled', 'Rescheduled'
@@ -14,6 +17,7 @@ export default function Bookings() {
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const [isNewCustomer, setIsNewCustomer] = useState(false);
+  const { confirm } = useDialog();
   
   const [formData, setFormData] = useState<Partial<Booking>>({
     customerId: '',
@@ -70,26 +74,59 @@ export default function Bookings() {
   const handleSave = async () => {
     if (isNewCustomer && !editingId) {
       if (!customerData.fullName) {
-        alert("Please enter customer name");
+        toast.error("Please enter customer name");
         return;
       }
       try {
         const newCust = await addCustomer(customerData as Omit<Customer, 'id' | 'createdAt'>);
         if (!formData.date || !formData.service) return;
-        await addBooking({ ...(formData as Omit<Booking, 'id' | 'createdAt'>), customerId: newCust.id, vehicle: formData.vehicle || (customerData.vehicles && customerData.vehicles[0]) || '' });
+        const newBkg = await addBooking({ ...(formData as Omit<Booking, 'id' | 'createdAt'>), customerId: newCust.id, vehicle: formData.vehicle || (customerData.vehicles && customerData.vehicles[0]) || '' });
+        toast.success("Booking created");
+        
+        // Trigger pre-saved SMS if status is configured
+        if (formData.status && formData.status !== 'New') {
+          triggerSmsForStatusChange(newBkg, newCust, formData.status);
+        }
+        
         resetForm();
       } catch (err) {
         console.error(err);
-        alert("Error saving booking");
+        toast.error("Error saving booking");
       }
     } else {
       if (!formData.customerId || !formData.date || !formData.service) return;
       if (editingId) {
+        const originalBooking = bookings.find(b => b.id === editingId);
         updateBooking(editingId, formData);
+        toast.success("Booking updated");
+        
+        // Trigger pre-saved SMS if status was changed
+        if (originalBooking && formData.status && formData.status !== originalBooking.status) {
+          const customer = getCustomer(formData.customerId || '');
+          if (customer) {
+            triggerSmsForStatusChange({ ...originalBooking, ...formData } as Booking, customer, formData.status);
+          }
+        }
       } else {
-        addBooking(formData as Omit<Booking, 'id' | 'createdAt'>);
+        const newBkg = await addBooking(formData as Omit<Booking, 'id' | 'createdAt'>);
+        toast.success("Booking created");
+        
+        // Trigger pre-saved SMS if status is not 'New'
+        if (formData.status && formData.status !== 'New') {
+          const customer = getCustomer(formData.customerId || '');
+          if (customer) {
+            triggerSmsForStatusChange(newBkg, customer, formData.status);
+          }
+        }
       }
       resetForm();
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (await confirm('Delete Booking', 'Are you sure you want to delete this booking?')) {
+      deleteBooking(id);
+      toast.success("Booking deleted");
     }
   };
 
@@ -402,7 +439,7 @@ export default function Bookings() {
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => handleEdit(booking)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Edit2 size={16} /></button>
-                          <button onClick={() => {if(confirm('Delete booking?')) deleteBooking(booking.id)}} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={16} /></button>
+                          <button onClick={() => handleDelete(booking.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={16} /></button>
                         </div>
                       </td>
                     </tr>

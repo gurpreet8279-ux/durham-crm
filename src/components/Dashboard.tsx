@@ -1,6 +1,7 @@
 import { useCRM } from '../store/useCRM';
 import { Users, Calendar as CalendarIcon, DollarSign, Activity, MessageSquare, TrendingUp, Award, Clock, Sparkles } from 'lucide-react';
 import IncomingRequests from './IncomingRequests';
+import { getSmsUrl, triggerSmsForStatusChange } from '../lib/sms';
 
 export default function Dashboard() {
   const { customers, bookings, updateBooking } = useCRM();
@@ -174,12 +175,18 @@ export default function Dashboard() {
                          </div>
                          <div className="flex gap-2">
                             {phone && (
-                              <a href={`sms:${phone}?body=Hi! Just checking in to see how everything is looking with your vehicle after our recent detailing service.`} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
+                              <a href={getSmsUrl(phone, "Hi! Just checking in to see how everything is looking with your vehicle after our recent detailing service.")} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
                                 <MessageSquare size={16} />
                               </a>
                             )}
                             <button 
-                              onClick={() => updateBooking(b.id, { status: 'Completed' })}
+                              onClick={() => {
+                                updateBooking(b.id, { status: 'Completed' });
+                                const cust = customers.find(c => c.id === b.customerId);
+                                if (cust) {
+                                  triggerSmsForStatusChange(b, cust, 'Completed');
+                                }
+                              }}
                               className="px-3 py-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg text-xs font-bold transition-colors"
                             >
                               Resolve

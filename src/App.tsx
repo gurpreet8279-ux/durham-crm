@@ -62,6 +62,12 @@ function MainApp() {
             <Crown size={24} className="text-blue-600" />
             <h1 className="font-bold text-slate-900">Crown CRM</h1>
           </div>
+          <button 
+            onClick={() => setActiveTab('admin')}
+            className={`p-2 rounded-lg transition-colors ${activeTab === 'admin' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'}`}
+          >
+            <Settings size={20} />
+          </button>
         </header>
 
         {/* Content Area */}

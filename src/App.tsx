@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map as MapIcon, Settings, LogOut } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import Bookings from './components/Bookings';
@@ -8,13 +8,14 @@ import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
 import AuthWrapper from './components/AuthWrapper';
 import { useCRM, CRMProvider } from './store/useCRM';
+import { logout } from './lib/firebaseAuth';
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'parser' | 'admin'>('manifest');
   const { authError } = useCRM();
 
   const tabs = [
-    { id: 'manifest', label: 'Manifest', icon: Map },
+    { id: 'manifest', label: 'Manifest', icon: MapIcon },
     { id: 'bookings', label: 'Bookings', icon: CalendarDays },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -36,7 +37,7 @@ function MainApp() {
           <button
             onClick={() => {
               localStorage.removeItem('google_access_token');
-              import('./lib/firebaseAuth').then(m => m.logout());
+              logout();
               window.location.reload();
             }}
             className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg px-4 py-3 transition-colors"
@@ -82,7 +83,7 @@ function MainApp() {
             onClick={() => {
               if (window.confirm('Are you sure you want to log out?')) {
                 localStorage.removeItem('google_access_token');
-                import('./lib/firebaseAuth').then(m => m.logout());
+                logout();
                 window.location.reload();
               }
             }}
@@ -105,7 +106,7 @@ function MainApp() {
             onClick={() => {
               if (window.confirm('Are you sure you want to log out?')) {
                 localStorage.removeItem('google_access_token');
-                import('./lib/firebaseAuth').then(m => m.logout());
+                logout();
                 window.location.reload();
               }
             }}
@@ -153,7 +154,15 @@ function MainApp() {
   );
 }
 
+import PublicBookingForm from './components/PublicBookingForm';
+
 export default function App() {
+  const isPublicBooking = window.location.pathname === '/book';
+
+  if (isPublicBooking) {
+    return <PublicBookingForm />;
+  }
+
   return (
     <AuthWrapper>
       <CRMProvider>

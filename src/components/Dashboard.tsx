@@ -1,5 +1,6 @@
 import { useCRM } from '../store/useCRM';
 import { Users, Calendar as CalendarIcon, DollarSign, Activity, MessageSquare, TrendingUp, Award, Clock, Sparkles } from 'lucide-react';
+import IncomingRequests from './IncomingRequests';
 
 export default function Dashboard() {
   const { customers, bookings, updateBooking } = useCRM();
@@ -59,6 +60,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <IncomingRequests />
       {/* Top Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">

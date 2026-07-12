@@ -102,6 +102,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.error("Error setting up sheets", e);
         if (e.message && e.message.includes('403')) {
           setAuthError('Google Sheets access denied. The API might not be enabled on your Google Cloud Project, or the file is restricted.');
+          localStorage.removeItem('google_access_token');
+          import('../lib/firebaseAuth').then(m => m.logout());
         } else if (e.message && e.message.includes('missing_scopes')) {
           setAuthError('Permissions missing. Please Sign Out, then sign in again and ENSURE you check the boxes to grant access to Google Drive and Google Sheets on the consent screen.');
         } else if (e.message && e.message.includes('token might be expired')) {

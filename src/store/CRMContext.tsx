@@ -116,20 +116,22 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                return key ? row[key] : '';
             };
             
-            const timestamp = getVal(['timestamp', 'date', 'time']);
-            const fullName = getVal(['name', 'first', 'last']);
-            const phoneNumber = getVal(['phone', 'mobile', 'cell']);
-            const email = getVal(['email']);
-            const address = getVal(['address', 'location']);
-            const city = getVal(['city', 'town']);
-            const vehicleMakeModel = getVal(['vehicle', 'make', 'model', 'car']);
-            const serviceRequested = getVal(['service', 'package', 'detail']);
-            const preferredDate = getVal(['date']);
+            const timestamp = getVal(['timestamp', 'date', 'time']) || new Date().toISOString();
+            const fullName = getVal(['name', 'first', 'last', 'customer', 'client']) || getVal(['who']) || 'Unknown Customer';
+            const phoneNumber = getVal(['phone', 'mobile', 'cell', 'number', 'contact']);
+            const email = getVal(['email', 'mail']);
+            const address = getVal(['address', 'location', 'where']);
+            const city = getVal(['city', 'town', 'zip']);
+            const vehicleMakeModel = getVal(['vehicle', 'make', 'model', 'car', 'auto', 'truck']);
+            const serviceRequested = getVal(['service', 'package', 'detail', 'type', 'what']);
+            const preferredDate = getVal(['date', 'when']);
             const preferredTime = getVal(['time']);
-            const notes = getVal(['notes', 'message', 'additional']);
+            const notes = getVal(['notes', 'message', 'additional', 'anything']);
             
-            if (timestamp && fullName) {
-              const id = `req_${btoa(timestamp + fullName).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15)}`;
+            const hasData = Object.values(row).some(v => typeof v === 'string' && v.trim() !== '');
+            
+            if (hasData) {
+              const id = `req_${btoa(timestamp + fullName + phoneNumber).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15)}`;
               
               newRequests.push({
                 id,

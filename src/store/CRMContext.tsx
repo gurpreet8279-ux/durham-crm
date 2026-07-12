@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Customer, Booking, Vehicle, Service, Setting } from '../types';
+import { Customer, Booking, Vehicle, Service, Setting, IncomingRequest } from '../types';
 import { findOrCreateSpreadsheet, getSheetData, appendRow, updateRow, fetchWithAuth } from '../lib/sheets';
 
 export interface User {
@@ -25,6 +25,9 @@ interface CRMContextType {
   addVehicle: (vehicle: Omit<Vehicle, 'id' | 'createdAt'>) => Promise<Vehicle>;
   updateVehicle: (id: string, updates: Partial<Vehicle>) => Promise<void>;
   deleteVehicle: (id: string) => Promise<void>;
+  incomingRequests: IncomingRequest[];
+  updateIncomingRequest: (rowNum: string, status: string) => Promise<void>;
+  refreshRequests: () => Promise<void>;
 }
 
 const CRMContext = createContext<CRMContextType | null>(null);
@@ -43,6 +46,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -52,6 +56,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCustomers([]);
         setBookings([]);
         setVehicles([]);
+        setIncomingRequests([]);
         setSpreadsheetId(null);
         setAuthError(null);
         setLoading(false);
@@ -143,6 +148,29 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getSheetData(id, 'Bookings!A2:N'),
         getSheetData(id, 'Vehicles!A2:G')
       ]);
+      
+      let formResponsesData: any[] = [];
+      try {
+        formResponsesData = await getSheetData(id, 'Form Responses 1!A2:L');
+      } catch (e) {
+        console.log("No Form Responses 1 sheet found yet.");
+      }
+
+      setIncomingRequests(formResponsesData.map((row, index) => ({
+        id: `row_${index + 2}`,
+        timestamp: row[0] || '',
+        fullName: row[1] || '',
+        phoneNumber: row[2] || '',
+        email: row[3] || '',
+        address: row[4] || '',
+        city: row[5] || '',
+        vehicleMakeModel: row[6] || '',
+        serviceRequested: row[7] || '',
+        preferredDate: row[8] || '',
+        preferredTime: row[9] || '',
+        notes: row[10] || '',
+        status: (row[11] as any) || 'Pending'
+      })).reverse());
 
       setCustomers(customersData.map(row => ({
         id: row[0] || '',
@@ -331,12 +359,27 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteVehicle = async (id: string) => deleteRow('Vehicles', id);
 
+  const updateIncomingRequest = async (rowId: string, status: string) => {
+    if (!spreadsheetId) throw new Error("No spreadsheet connected");
+    const rowIndex = parseInt(rowId.split('_')[1], 10);
+    // Write status to column L (index 11)
+    await updateRow(spreadsheetId, `Form Responses 1!L${rowIndex}:L${rowIndex}`, [status]);
+    await loadData(spreadsheetId);
+  };
+
+  const refreshRequests = async () => {
+    if (spreadsheetId) {
+      await loadData(spreadsheetId);
+    }
+  };
+
   return (
     <CRMContext.Provider value={{
       user, loading, authError, login,
       customers, addCustomer, updateCustomer, deleteCustomer,
       bookings, addBooking, updateBooking, deleteBooking,
-      vehicles, addVehicle, updateVehicle, deleteVehicle
+      vehicles, addVehicle, updateVehicle, deleteVehicle,
+      incomingRequests, updateIncomingRequest, refreshRequests
     }}>
       {children}
     </CRMContext.Provider>

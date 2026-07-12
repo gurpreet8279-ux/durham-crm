@@ -53,3 +53,19 @@ export interface Setting {
   key: string;
   value: string;
 }
+
+export interface IncomingRequest {
+  id: string; // Row index or timestamp
+  timestamp: string;
+  fullName: string;
+  phoneNumber: string;
+  email: string;
+  address: string;
+  city: string;
+  vehicleMakeModel: string;
+  serviceRequested: string;
+  preferredDate: string;
+  preferredTime: string;
+  notes: string;
+  status: 'Pending' | 'Approved' | 'Dismissed';
+}

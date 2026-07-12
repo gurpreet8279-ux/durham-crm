@@ -30,7 +30,11 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
       }
     } catch (error: any) {
       console.error('Login Failed:', error);
-      setAuthError('An error occurred during sign in.');
+      if (error.code === 'auth/popup-closed-by-user') {
+        setAuthError('Sign in was cancelled. Please try again.');
+      } else {
+        setAuthError('An error occurred during sign in.');
+      }
     } finally {
       setIsLoggingIn(false);
     }

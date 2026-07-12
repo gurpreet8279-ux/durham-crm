@@ -32,8 +32,10 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
       console.error('Login Failed:', error);
       if (error.code === 'auth/popup-closed-by-user') {
         setAuthError('Sign in was cancelled. Please try again.');
+      } else if (error.code === 'auth/unauthorized-domain') {
+        setAuthError(`This domain is not authorized for OAuth. Please add your Vercel domain to Firebase Console -> Authentication -> Settings -> Authorized domains.`);
       } else {
-        setAuthError('An error occurred during sign in.');
+        setAuthError(error.message || 'An error occurred during sign in.');
       }
     } finally {
       setIsLoggingIn(false);

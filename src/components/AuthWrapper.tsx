@@ -6,6 +6,7 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
   const [needsAuth, setNeedsAuth] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     // Check local storage as a quick initial check, then wait for Firebase
@@ -32,13 +33,19 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
+    setAuthError(null);
     try {
       const result = await googleSignIn();
       if (result) {
         setNeedsAuth(false);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login Failed:', error);
+      if (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user' || error.message.includes('cross-origin')) {
+        setAuthError('Sign-in popup was blocked or failed due to browser restrictions. Please click "Open in New Tab" below.');
+      } else {
+        setAuthError(error.message || 'An error occurred during sign in.');
+      }
     } finally {
       setIsLoggingIn(false);
     }
@@ -86,6 +93,18 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
               </span>
             </div>
           </button>
+          
+          {authError && (
+            <div className="mt-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg text-left">
+              <p className="mb-2">{authError}</p>
+              <button 
+                onClick={() => window.open(window.location.href, '_blank')}
+                className="w-full mt-2 bg-white text-slate-800 border border-slate-300 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors"
+              >
+                Open in New Tab
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export const app = initializeApp(firebaseConfig);
@@ -20,20 +20,6 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  // Check for redirect result on load
-  getRedirectResult(auth).then((result) => {
-    if (result) {
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        cachedAccessToken = credential.accessToken;
-        localStorage.setItem('google_access_token', credential.accessToken);
-        if (onAuthSuccess) onAuthSuccess(result.user, cachedAccessToken);
-      }
-    }
-  }).catch((error) => {
-    console.error("Redirect sign-in error:", error);
-  });
-
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       if (cachedAccessToken) {
@@ -52,34 +38,19 @@ export const initAuth = (
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
     
-    // Check if we are on a mobile device where popups might be blocked
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      await signInWithRedirect(auth, provider);
-      return null;
-    } else {
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      
-      if (!credential?.accessToken) {
-        throw new Error('Failed to get access token from Firebase Auth');
-      }
-
-      cachedAccessToken = credential.accessToken;
-      // Store in localStorage as fallback since we need it for CRMContext currently, or we can update CRMContext to use getAccessToken
-      localStorage.setItem('google_access_token', credential.accessToken);
-      
-      return { user: result.user, accessToken: cachedAccessToken };
+    if (!credential?.accessToken) {
+      throw new Error('Failed to get access token from Firebase Auth');
     }
+
+    cachedAccessToken = credential.accessToken;
+    localStorage.setItem('google_access_token', credential.accessToken);
+    
+    return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Sign in error:', error);
-    // If popup was blocked, fallback to redirect
-    if (error.code === 'auth/popup-blocked') {
-      await signInWithRedirect(auth, provider);
-      return null;
-    }
     throw error;
   } finally {
     isSigningIn = false;

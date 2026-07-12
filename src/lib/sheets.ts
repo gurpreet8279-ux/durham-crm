@@ -22,7 +22,8 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 
 export async function findOrCreateSpreadsheet(): Promise<string> {
   // Search for existing spreadsheet
-  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='${SPREADSHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+  const query = `name='${SPREADSHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`;
   const searchResult = await fetchWithAuth(searchUrl);
   
   if (searchResult.files && searchResult.files.length > 0) {
@@ -65,19 +66,19 @@ export async function findOrCreateSpreadsheet(): Promise<string> {
 }
 
 export async function getSheetData(spreadsheetId: string, range: string) {
-  const data = await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`);
+  const data = await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
   return data.values || [];
 }
 
 export async function appendRow(spreadsheetId: string, range: string, values: any[]) {
-  return await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`, {
+  return await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     body: JSON.stringify({ values: [values] })
   });
 }
 
 export async function updateRow(spreadsheetId: string, range: string, values: any[]) {
-  return await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`, {
+  return await fetchWithAuth(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
     body: JSON.stringify({ values: [values] })
   });

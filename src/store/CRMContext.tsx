@@ -170,7 +170,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       method: 'PUT',
       body: JSON.stringify({ status })
     });
-    setIncomingRequests(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    setIncomingRequests(prev => prev.map(r => r.id === id ? { ...r, status: status as any } : r));
   };
 
   const refreshRequests = async () => {

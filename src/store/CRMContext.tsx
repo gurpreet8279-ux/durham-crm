@@ -1,7 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Customer, Booking, Vehicle, Service, Setting, IncomingRequest } from '../types';
-import { findOrCreateSpreadsheet, syncToSheets, readFromSheets } from '../lib/sheets';
-import { getAccessToken } from '../lib/firebaseAuth';
 
 export interface User {
   id: string;
@@ -46,27 +44,19 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
-  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(null);
 
-  const loadData = async () => {
+  const loadData = () => {
     try {
-      const token = await getAccessToken();
-      if (!token) return;
-
-      const sid = await findOrCreateSpreadsheet();
-      setSpreadsheetId(sid);
-
-      const data = await readFromSheets(sid);
-      setCustomers(data.customers || []);
-      setBookings(data.bookings || []);
-      setVehicles(data.vehicles || []);
-      setIncomingRequests(data.incomingRequests || []);
-      setAuthError(null);
-    } catch (e: any) {
-      console.error("Failed to load data", e);
-      if (e.message.includes('API has not been used') || e.message.includes('not enabled')) {
-        setAuthError("Google Sheets or Drive API might not be enabled. " + e.message);
+      const data = localStorage.getItem('crown_crm_data');
+      if (data) {
+        const parsed = JSON.parse(data);
+        setCustomers(parsed.customers || []);
+        setBookings(parsed.bookings || []);
+        setVehicles(parsed.vehicles || []);
+        setIncomingRequests(parsed.incomingRequests || []);
       }
+    } catch (e: any) {
+      console.error("Failed to load local data", e);
     } finally {
       setLoading(false);
     }
@@ -74,22 +64,19 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
   }, []);
 
   // Helper to trigger save
-  const triggerSave = async (newData: any) => {
-    if (!spreadsheetId) return;
+  const triggerSave = (newData: any) => {
     try {
-      await syncToSheets(spreadsheetId, newData);
+      localStorage.setItem('crown_crm_data', JSON.stringify(newData));
     } catch (e) {
-      console.error("Failed to sync to sheets", e);
+      console.error("Failed to sync to local storage", e);
     }
   };
 
   const login = async () => {
-    // Handled by AuthWrapper
+    // Handled by AuthWrapper if needed (now disabled)
   };
 
   const addCustomer = async (data: Omit<Customer, 'id' | 'createdAt'>) => {
@@ -191,7 +178,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const refreshRequests = async () => {
-    await loadData();
+    loadData();
   };
 
   return (

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map as MapIcon, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map as MapIcon, Settings } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import Bookings from './components/Bookings';
@@ -8,12 +8,10 @@ import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
 import AuthWrapper from './components/AuthWrapper';
 import { useCRM, CRMProvider } from './store/useCRM';
-import { logout } from './lib/firebaseAuth';
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'parser' | 'admin'>('manifest');
-  const { authError } = useCRM();
-
+  
   const tabs = [
     { id: 'manifest', label: 'Manifest', icon: MapIcon },
     { id: 'bookings', label: 'Bookings', icon: CalendarDays },
@@ -22,45 +20,6 @@ function MainApp() {
     { id: 'parser', label: 'AI Parser', icon: Sparkles },
     { id: 'admin', label: 'Admin', icon: Settings },
   ] as const;
-
-  if (authError) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-red-200 max-w-lg w-full mx-4 text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center text-red-600 mx-auto mb-6">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-bold text-slate-900 mb-4">Authentication Error</h1>
-          <p className="text-slate-600 mb-6 text-sm leading-relaxed">{authError}</p>
-          
-          {authError.includes('API might not be enabled') && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">
-              <h3 className="font-bold text-amber-900 text-sm mb-2">How to fix this:</h3>
-              <ol className="list-decimal pl-5 text-sm text-amber-800 space-y-2">
-                <li>Go to the <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noreferrer" className="underline font-semibold hover:text-amber-900">Google Sheets API Console</a> and click <strong>Enable</strong>.</li>
-                <li>Go to the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer" className="underline font-semibold hover:text-amber-900">Google Drive API Console</a> and click <strong>Enable</strong>.</li>
-                <li>Make sure you select the correct Firebase project from the dropdown at the top.</li>
-                <li>Come back here, Sign Out, and sign in again.</li>
-              </ol>
-            </div>
-          )}
-
-          <button
-            onClick={() => {
-              localStorage.removeItem('google_access_token');
-              logout();
-              window.location.reload();
-            }}
-            className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium rounded-lg px-4 py-3 transition-colors"
-          >
-            <LogOut size={18} /> Sign Out and Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
@@ -77,6 +36,7 @@ function MainApp() {
             </div>
           </div>
         </div>
+        
         <nav className="flex-1 px-4 space-y-1 overflow-y-auto mt-4">
           {tabs.map((tab) => (
             <button
@@ -91,42 +51,17 @@ function MainApp() {
             </button>
           ))}
         </nav>
-        <div className="p-4 mt-auto">
-          <button
-            onClick={() => {
-              if (window.confirm('Are you sure you want to log out?')) {
-                localStorage.removeItem('google_access_token');
-                logout();
-                window.location.reload();
-              }
-            }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-          >
-            <LogOut size={18} /> Sign Out
-          </button>
-        </div>
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden pb-[72px] md:pb-0">
+        
         {/* Mobile Header */}
         <header className="md:hidden bg-white border-b border-slate-200 px-4 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
             <Crown size={24} className="text-blue-600" />
             <h1 className="font-bold text-slate-900">Crown CRM</h1>
           </div>
-          <button
-            onClick={() => {
-              if (window.confirm('Are you sure you want to log out?')) {
-                localStorage.removeItem('google_access_token');
-                logout();
-                window.location.reload();
-              }
-            }}
-            className="text-slate-500 p-2"
-          >
-            <LogOut size={20} />
-          </button>
         </header>
 
         {/* Content Area */}

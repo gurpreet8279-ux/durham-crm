@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Crown } from 'lucide-react';
+import { initAuth, googleSignIn, User } from '../lib/firebaseAuth';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [needsAuth, setNeedsAuth] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem('app_token');
-    if (token) {
-      setNeedsAuth(false);
-    }
+    const unsubscribe = initAuth(
+      (user, token) => {
+        setNeedsAuth(false);
+      },
+      () => {
+        setNeedsAuth(true);
+      }
+    );
+    return () => unsubscribe();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -19,17 +24,9 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
     setIsLoggingIn(true);
     setAuthError(null);
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        localStorage.setItem('app_token', data.token);
+      const result = await googleSignIn();
+      if (result) {
         setNeedsAuth(false);
-      } else {
-        setAuthError(data.error || 'Invalid password');
       }
     } catch (error: any) {
       console.error('Login Failed:', error);
@@ -47,26 +44,14 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
             <Crown size={32} />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Crown CRM</h1>
-          <p className="text-slate-500 mb-8 text-sm">Enter the master password to access your CRM database.</p>
-          
-          <div className="mb-4 text-left">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input 
-              type="password" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Enter password"
-              required
-            />
-          </div>
+          <p className="text-slate-500 mb-8 text-sm">Sign in with Google to access your CRM database and Google Sheets.</p>
           
           <button
             type="submit"
             disabled={isLoggingIn}
             className="w-full flex items-center justify-center bg-blue-600 text-white rounded-lg p-2 font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
-            {isLoggingIn ? 'Signing in...' : 'Sign In'}
+            {isLoggingIn ? 'Signing in...' : 'Sign In with Google'}
           </button>
           
           {authError && (
@@ -79,4 +64,5 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
     );
   }
 
-  return <>{children}</>;}
+  return <>{children}</>;
+}

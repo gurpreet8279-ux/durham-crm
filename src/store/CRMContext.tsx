@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Customer, Booking, Vehicle, Service, Setting, IncomingRequest } from '../types';
+import { findOrCreateSpreadsheet, syncToSheets, readFromSheets } from '../lib/sheets';
+import { getAccessToken } from '../lib/firebaseAuth';
 
 export interface User {
   id: string;
@@ -44,34 +46,27 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
-
-  const fetchWithToken = async (url: string, options: RequestInit = {}) => {
-    const token = localStorage.getItem('app_token');
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    if (res.status === 401) {
-      localStorage.removeItem('app_token');
-      window.location.reload();
-    }
-    return res;
-  };
+  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
-      const res = await fetchWithToken('/api/data');
-      const data = await res.json();
+      const token = await getAccessToken();
+      if (!token) return;
+
+      const sid = await findOrCreateSpreadsheet();
+      setSpreadsheetId(sid);
+
+      const data = await readFromSheets(sid);
       setCustomers(data.customers || []);
       setBookings(data.bookings || []);
       setVehicles(data.vehicles || []);
       setIncomingRequests(data.incomingRequests || []);
-    } catch (e) {
+      setAuthError(null);
+    } catch (e: any) {
       console.error("Failed to load data", e);
+      if (e.message.includes('API has not been used') || e.message.includes('not enabled')) {
+        setAuthError("Google Sheets or Drive API might not be enabled. " + e.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -83,6 +78,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearInterval(interval);
   }, []);
 
+  // Helper to trigger save
+  const triggerSave = async (newData: any) => {
+    if (!spreadsheetId) return;
+    try {
+      await syncToSheets(spreadsheetId, newData);
+    } catch (e) {
+      console.error("Failed to sync to sheets", e);
+    }
+  };
+
   const login = async () => {
     // Handled by AuthWrapper
   };
@@ -90,87 +95,99 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addCustomer = async (data: Omit<Customer, 'id' | 'createdAt'>) => {
     const newId = generateId('cus');
     const now = new Date().toISOString();
+    const customer = { ...data, id: newId, createdAt: now } as Customer;
     
-    const customer = { ...data, id: newId, createdAt: now };
-    await fetchWithToken('/api/customers', {
-      method: 'POST',
-      body: JSON.stringify(customer)
+    setCustomers(prev => {
+      const updated = [...prev, customer];
+      triggerSave({ customers: updated, bookings, vehicles, incomingRequests });
+      return updated;
     });
-    setCustomers(prev => [...prev, customer]);
-    return customer as Customer;
+    return customer;
   };
 
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    await fetchWithToken(`/api/customers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates)
+    setCustomers(prev => {
+      const updated = prev.map(c => c.id === id ? { ...c, ...updates } : c);
+      triggerSave({ customers: updated, bookings, vehicles, incomingRequests });
+      return updated;
     });
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
   };
 
   const deleteCustomer = async (id: string) => {
-    await fetchWithToken(`/api/customers/${id}`, { method: 'DELETE' });
-    setCustomers(prev => prev.filter(c => c.id !== id));
+    if (!window.confirm("Are you sure you want to delete this customer? This action cannot be undone.")) return;
+    setCustomers(prev => {
+      const updated = prev.filter(c => c.id !== id);
+      triggerSave({ customers: updated, bookings, vehicles, incomingRequests });
+      return updated;
+    });
   };
 
   const addBooking = async (data: Omit<Booking, 'id' | 'createdAt'>) => {
     const newId = generateId('bkg');
     const now = new Date().toISOString();
+    const booking = { ...data, id: newId, createdAt: now } as Booking;
     
-    const booking = { ...data, id: newId, createdAt: now };
-    await fetchWithToken('/api/bookings', {
-      method: 'POST',
-      body: JSON.stringify(booking)
+    setBookings(prev => {
+      const updated = [booking, ...prev];
+      triggerSave({ customers, bookings: updated, vehicles, incomingRequests });
+      return updated;
     });
-    setBookings(prev => [booking as Booking, ...prev]);
-    return booking as Booking;
+    return booking;
   };
 
   const updateBooking = async (id: string, updates: Partial<Booking>) => {
-    await fetchWithToken(`/api/bookings/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates)
+    setBookings(prev => {
+      const updated = prev.map(b => b.id === id ? { ...b, ...updates } : b);
+      triggerSave({ customers, bookings: updated, vehicles, incomingRequests });
+      return updated;
     });
-    setBookings(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
   };
 
   const deleteBooking = async (id: string) => {
-    await fetchWithToken(`/api/bookings/${id}`, { method: 'DELETE' });
-    setBookings(prev => prev.filter(b => b.id !== id));
+    if (!window.confirm("Are you sure you want to delete this booking? This action cannot be undone.")) return;
+    setBookings(prev => {
+      const updated = prev.filter(b => b.id !== id);
+      triggerSave({ customers, bookings: updated, vehicles, incomingRequests });
+      return updated;
+    });
   };
 
   const addVehicle = async (data: Omit<Vehicle, 'id' | 'createdAt'>) => {
     const newId = generateId('veh');
     const now = new Date().toISOString();
+    const vehicle = { ...data, id: newId, createdAt: now } as Vehicle;
     
-    const vehicle = { ...data, id: newId, createdAt: now };
-    await fetchWithToken('/api/vehicles', {
-      method: 'POST',
-      body: JSON.stringify(vehicle)
+    setVehicles(prev => {
+      const updated = [...prev, vehicle];
+      triggerSave({ customers, bookings, vehicles: updated, incomingRequests });
+      return updated;
     });
-    setVehicles(prev => [...prev, vehicle as Vehicle]);
-    return vehicle as Vehicle;
+    return vehicle;
   };
 
   const updateVehicle = async (id: string, updates: Partial<Vehicle>) => {
-    await fetchWithToken(`/api/vehicles/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates)
+    setVehicles(prev => {
+      const updated = prev.map(v => v.id === id ? { ...v, ...updates } : v);
+      triggerSave({ customers, bookings, vehicles: updated, incomingRequests });
+      return updated;
     });
-    setVehicles(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
   };
 
   const deleteVehicle = async (id: string) => {
-    await fetchWithToken(`/api/vehicles/${id}`, { method: 'DELETE' });
-    setVehicles(prev => prev.filter(v => v.id !== id));
+    if (!window.confirm("Are you sure you want to delete this vehicle? This action cannot be undone.")) return;
+    setVehicles(prev => {
+      const updated = prev.filter(v => v.id !== id);
+      triggerSave({ customers, bookings, vehicles: updated, incomingRequests });
+      return updated;
+    });
   };
 
   const updateIncomingRequest = async (id: string, status: string) => {
-    await fetchWithToken(`/api/requests/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status })
+    setIncomingRequests(prev => {
+      const updated = prev.map(r => r.id === id ? { ...r, status: status as any } : r);
+      triggerSave({ customers, bookings, vehicles, incomingRequests: updated });
+      return updated;
     });
-    setIncomingRequests(prev => prev.map(r => r.id === id ? { ...r, status: status as any } : r));
   };
 
   const refreshRequests = async () => {

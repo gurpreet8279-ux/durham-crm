@@ -32,7 +32,7 @@ export default function Dashboard() {
     acc[b.customerId] = (acc[b.customerId] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
-  const returningCustomers = Object.values(customerBookingCounts).filter(count => count > 1).length;
+  const returningCustomers = Object.values(customerBookingCounts).filter((count: any) => count > 1).length;
 
   // Popular Services
   const serviceCounts = bookings.reduce((acc, b) => {
@@ -44,7 +44,7 @@ export default function Dashboard() {
   }, {} as Record<string, number>);
   
   const popularServices = Object.entries(serviceCounts)
-    .sort((a, b) => b[1] - a[1])
+    .sort((a: any, b: any) => b[1] - a[1])
     .slice(0, 3);
   
   const upcomingBookings = [...activeBookings]
@@ -207,7 +207,7 @@ export default function Dashboard() {
                  <div className="text-center text-slate-500 text-sm py-4">Not enough data.</div>
                ) : (
                  <div className="space-y-4">
-                   {popularServices.map(([service, count], i) => (
+                   {popularServices.map(([service, count]: any, i) => (
                      <div key={service} className="flex items-center justify-between">
                        <div className="flex items-center gap-3">
                          <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold">{i + 1}</div>

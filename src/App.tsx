@@ -8,7 +8,7 @@ import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
 import AuthWrapper from './components/AuthWrapper';
 import { useCRM, CRMProvider } from './store/useCRM';
-import { logout } from './lib/firebaseAuth';
+const logout = () => { localStorage.removeItem('app_token'); window.location.reload(); };
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'parser' | 'admin'>('manifest');

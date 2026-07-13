@@ -11,7 +11,7 @@ const STATUS_OPTIONS: BookingStatus[] = [
 ];
 
 export default function Bookings() {
-  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer } = useCRM();
+  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer, updateCustomer } = useCRM();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -57,7 +57,9 @@ export default function Bookings() {
     });
 
   const resetForm = () => {
-    setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], time: '09:00', duration: 120, service: '', vehicle: '', price: 0, paymentStatus: 'Unpaid', status: 'New', notes: '' });
+    const d = new Date();
+    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    setFormData({ customerId: '', date: todayStr, time: '09:00', duration: 120, service: '', vehicle: '', price: 0, paymentStatus: 'Unpaid', status: 'New', notes: '' });
     setCustomerData({ fullName: '', phoneNumber: '', email: '', address: '', city: '', vehicles: [], notes: '' });
     setIsAdding(false);
     setEditingId(null);
@@ -69,6 +71,18 @@ export default function Bookings() {
     setIsAdding(true);
     setEditingId(booking.id);
     setIsNewCustomer(false);
+    const selected = customers.find(c => c.id === booking.customerId);
+    if (selected) {
+      setCustomerData({
+        fullName: selected.fullName,
+        phoneNumber: selected.phoneNumber,
+        email: selected.email || '',
+        address: selected.address || '',
+        city: selected.city || '',
+        vehicles: selected.vehicles || [],
+        notes: selected.notes || ''
+      });
+    }
   };
 
   const handleSave = async () => {
@@ -95,6 +109,13 @@ export default function Bookings() {
       }
     } else {
       if (!formData.customerId || !formData.date || !formData.service) return;
+      
+      // Update the customer's address and city if provided/changed
+      await updateCustomer(formData.customerId, {
+        address: customerData.address || '',
+        city: customerData.city || ''
+      });
+
       if (editingId) {
         const originalBooking = bookings.find(b => b.id === editingId);
         updateBooking(editingId, formData);
@@ -160,18 +181,62 @@ export default function Bookings() {
           )}
 
           {(!isNewCustomer || editingId) ? (
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Customer *</label>
-              <select 
-                value={formData.customerId || ''} 
-                onChange={e => setFormData({...formData, customerId: e.target.value, vehicle: ''})}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-              >
-                <option value="" disabled>Select a customer...</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.fullName} - {c.phoneNumber}</option>
-                ))}
-              </select>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Customer *</label>
+                <select 
+                  value={formData.customerId || ''} 
+                  onChange={e => {
+                    const cid = e.target.value;
+                    setFormData({...formData, customerId: cid, vehicle: ''});
+                    const selected = customers.find(c => c.id === cid);
+                    if (selected) {
+                      setCustomerData({
+                        fullName: selected.fullName,
+                        phoneNumber: selected.phoneNumber,
+                        email: selected.email || '',
+                        address: selected.address || '',
+                        city: selected.city || '',
+                        vehicles: selected.vehicles || [],
+                        notes: selected.notes || ''
+                      });
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                >
+                  <option value="" disabled>Select a customer...</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.fullName} - {c.phoneNumber}</option>
+                  ))}
+                </select>
+              </div>
+
+              {formData.customerId && (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Customer Address</label>
+                      <input 
+                        type="text" 
+                        value={customerData.address || ''} 
+                        onChange={e => setCustomerData({...customerData, address: e.target.value})}
+                        placeholder="Customer Address"
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">City</label>
+                      <input 
+                        type="text" 
+                        value={customerData.city || ''} 
+                        onChange={e => setCustomerData({...customerData, city: e.target.value})}
+                        placeholder="Customer City"
+                        className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
@@ -195,14 +260,27 @@ export default function Bookings() {
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Address</label>
-                <input 
-                  type="text" 
-                  value={customerData.address || ''} 
-                  onChange={e => setCustomerData({...customerData, address: e.target.value})}
-                  className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Address</label>
+                  <input 
+                    type="text" 
+                    value={customerData.address || ''} 
+                    onChange={e => setCustomerData({...customerData, address: e.target.value})}
+                    placeholder="Customer Address"
+                    className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">City</label>
+                  <input 
+                    type="text" 
+                    value={customerData.city || ''} 
+                    onChange={e => setCustomerData({...customerData, city: e.target.value})}
+                    placeholder="Customer City"
+                    className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -406,7 +484,7 @@ export default function Bookings() {
                       <td className="px-6 py-4">
                         <div className="font-medium text-slate-900 flex items-center gap-2">
                           <Calendar size={14} className="text-slate-400" />
-                          {new Date(booking.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {new Date(`${booking.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                         </div>
                         {booking.time && (
                           <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 ml-5">

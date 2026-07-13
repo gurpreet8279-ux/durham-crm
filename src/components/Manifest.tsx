@@ -7,8 +7,9 @@ export default function Manifest() {
   const { bookings, customers, updateBooking } = useCRM();
   const [smsStatus, setSmsStatus] = useState<Record<string, string>>({});
 
-  // Get today's date in YYYY-MM-DD
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Get today's date in YYYY-MM-DD (local time)
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   
   // Filter jobs for today, sort by time
   const todayJobs = bookings
@@ -104,7 +105,7 @@ export default function Manifest() {
           <div>
             <p className="text-blue-300 font-bold uppercase tracking-wider text-xs mb-1">Today's Manifest</p>
             <h2 className="text-3xl font-bold tracking-tight mb-2">
-              {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+              {today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
             </h2>
             <div className="flex items-center gap-4 text-sm text-slate-300">
               <span className="flex items-center gap-1.5"><CalendarIcon size={16} /> {todayJobs.length} Jobs Scheduled</span>

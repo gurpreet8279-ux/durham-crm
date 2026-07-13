@@ -13,6 +13,7 @@ export default function Dashboard() {
   
   // Date calculations
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - today.getDay());
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -20,10 +21,10 @@ export default function Dashboard() {
   // Revenue calculations
   const totalRevenue = completedBookings.reduce((sum, b) => sum + (b.price || 0), 0);
   const weeklyRevenue = completedBookings
-    .filter(b => new Date(b.date) >= startOfWeek)
+    .filter(b => new Date(`${b.date}T00:00:00`) >= startOfWeek)
     .reduce((sum, b) => sum + (b.price || 0), 0);
   const monthlyRevenue = completedBookings
-    .filter(b => new Date(b.date) >= startOfMonth)
+    .filter(b => new Date(`${b.date}T00:00:00`) >= startOfMonth)
     .reduce((sum, b) => sum + (b.price || 0), 0);
 
   const averageSpend = completedBookings.length > 0 ? totalRevenue / completedBookings.length : 0;
@@ -133,8 +134,8 @@ export default function Dashboard() {
                   <div key={b.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className="bg-blue-50 text-blue-600 font-bold p-3 rounded-lg text-center min-w-[60px]">
-                        <div className="text-xs uppercase">{new Date(b.date).toLocaleDateString(undefined, { month: 'short' })}</div>
-                        <div className="text-xl leading-none mt-1">{new Date(b.date).getDate()}</div>
+                        <div className="text-xs uppercase">{new Date(`${b.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short' })}</div>
+                        <div className="text-xl leading-none mt-1">{new Date(`${b.date}T00:00:00`).getDate()}</div>
                       </div>
                       <div>
                         <h4 className="font-bold text-slate-900 text-sm">{getCustomerName(b.customerId)}</h4>

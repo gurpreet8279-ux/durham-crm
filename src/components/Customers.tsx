@@ -126,6 +126,7 @@ export default function Customers() {
                 type="text" 
                 value={formData.address || ''} 
                 onChange={e => setFormData({...formData, address: e.target.value})}
+                placeholder="Street Address"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
               />
             </div>
@@ -135,6 +136,7 @@ export default function Customers() {
                 type="text" 
                 value={formData.city || ''} 
                 onChange={e => setFormData({...formData, city: e.target.value})}
+                placeholder="City/Town"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" 
               />
             </div>

@@ -44,7 +44,10 @@ export default function IncomingRequests() {
         customerId,
         vehicleId: '',
         vehicle: req.vehicleMakeModel,
-        date: req.preferredDate || new Date().toISOString().split('T')[0],
+        date: req.preferredDate || (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })(),
         time: req.preferredTime || '',
         duration: 120, // default
         service: req.serviceRequested,

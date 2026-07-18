@@ -1,25 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Customer, Booking, Vehicle } from '../types';
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut,
-  User as FirebaseUser
-} from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  collection, 
-  onSnapshot, 
-  deleteDoc,
-  writeBatch
-} from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { Customer, Booking, Vehicle, Service, Setting, IncomingRequest } from '../types';
 import Papa from 'papaparse';
 import toast from 'react-hot-toast';
 
@@ -27,18 +7,13 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'technician';
-  sheetCsvUrl?: string;
 }
 
 interface CRMContextType {
   user: User | null;
   loading: boolean;
   authError: string | null;
-  loginWithEmail: (email: string, password: string) => Promise<void>;
-  registerWithEmail: (email: string, password: string, name: string, role: 'admin' | 'technician') => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
-  logout: () => Promise<void>;
+  login: () => Promise<void>;
   customers: Customer[];
   addCustomer: (customer: Omit<Customer, 'id' | 'createdAt'>) => Promise<Customer>;
   updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
@@ -58,9 +33,6 @@ interface CRMContextType {
   setSheetCsvUrl: (url: string) => void;
   syncFromGoogleForm: () => Promise<void>;
   isSyncing: boolean;
-  isLocalMode: boolean;
-  enableLocalMode: (name?: string, role?: 'admin' | 'technician') => void;
-  disableLocalMode: () => void;
 }
 
 const CRMContext = createContext<CRMContextType | null>(null);
@@ -70,12 +42,7 @@ function generateId(prefix: string) {
 }
 
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isLocalMode, setIsLocalMode] = useState<boolean>(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem('CRM_LOCAL_MODE') === 'true' : false;
-  });
-
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>({ id: 'admin', email: 'admin@crown', name: 'Admin' });
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   
@@ -87,279 +54,43 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [sheetCsvUrl, setSheetCsvUrlState] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Load local data helper
-  const loadLocalData = () => {
-    if (typeof window === 'undefined') return;
-    
-    // Set local mock user
-    const savedName = localStorage.getItem('CRM_LOCAL_USER_NAME') || 'Demo Owner';
-    const savedRole = (localStorage.getItem('CRM_LOCAL_USER_ROLE') as 'admin' | 'technician') || 'admin';
-    setUser({
-      id: 'local_user',
-      email: 'demo@crowndetailing.com',
-      name: savedName,
-      role: savedRole,
-      sheetCsvUrl: localStorage.getItem('CRM_LOCAL_SHEET_CSV_URL') || ''
-    });
-
-    // Load Collections
+  const loadData = () => {
     try {
-      const localCusts = JSON.parse(localStorage.getItem('CRM_LOCAL_CUSTOMERS') || '[]');
-      localCusts.sort((a: Customer, b: Customer) => a.fullName.localeCompare(b.fullName));
-      setCustomers(localCusts);
-    } catch {
-      setCustomers([]);
-    }
-
-    try {
-      const localBgs = JSON.parse(localStorage.getItem('CRM_LOCAL_BOOKINGS') || '[]');
-      localBgs.sort((a: Booking, b: Booking) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setBookings(localBgs);
-    } catch {
-      setBookings([]);
-    }
-
-    try {
-      const localReqs = JSON.parse(localStorage.getItem('CRM_LOCAL_REQUESTS') || '[]');
-      localReqs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      setIncomingRequests(localReqs);
-    } catch {
-      setIncomingRequests([]);
-    }
-
-    setSheetCsvUrlState(localStorage.getItem('CRM_LOCAL_SHEET_CSV_URL') || '');
-    setLoading(false);
-  };
-
-  // 1. Listen for Auth Changes / Mode changes
-  useEffect(() => {
-    if (isLocalMode) {
-      loadLocalData();
-      return;
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, (fUser) => {
-      setFirebaseUser(fUser);
-      if (!fUser) {
-        setUser(null);
-        setCustomers([]);
-        setBookings([]);
-        setIncomingRequests([]);
-        setSheetCsvUrlState('');
-        setLoading(false);
+      const data = localStorage.getItem('crown_crm_data');
+      if (data) {
+        const parsed = JSON.parse(data);
+        setCustomers(parsed.customers || []);
+        setBookings(parsed.bookings || []);
+        setVehicles(parsed.vehicles || []);
+        setIncomingRequests(parsed.incomingRequests || []);
+        setSheetCsvUrlState(parsed.sheetCsvUrl || '');
       }
-    });
-    return unsubscribe;
-  }, [isLocalMode]);
+    } catch (e: any) {
+      console.error("Failed to load local data", e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // 2. Fetch/Listen for User Profile and Collections once signed in (Firebase only)
   useEffect(() => {
-    if (isLocalMode || !firebaseUser) return;
+    loadData();
+  }, []);
 
-    setLoading(true);
-    const userId = firebaseUser.uid;
-
-    // Listen to User document
-    const unsubUser = onSnapshot(doc(db, 'users', userId), async (userSnap) => {
-      if (userSnap.exists()) {
-        const uData = userSnap.data();
-        setUser({
-          id: userId,
-          email: firebaseUser.email || '',
-          name: uData.name || 'User',
-          role: uData.role || 'admin',
-          sheetCsvUrl: uData.sheetCsvUrl || ''
-        });
-        setSheetCsvUrlState(uData.sheetCsvUrl || '');
-      } else {
-        const defaultProfile = {
-          uid: userId,
-          email: firebaseUser.email || '',
-          name: firebaseUser.displayName || 'Crown User',
-          role: 'admin' as const,
-          sheetCsvUrl: '',
-          createdAt: new Date().toISOString()
-        };
-        await setDoc(doc(db, 'users', userId), defaultProfile);
-        setUser({
-          id: userId,
-          email: firebaseUser.email || '',
-          name: defaultProfile.name,
-          role: defaultProfile.role,
-          sheetCsvUrl: ''
-        });
-      }
-    }, (error) => {
-      console.error("User snapshot subscription error:", error);
-    });
-
-    // Listen to Customers
-    const unsubCustomers = onSnapshot(collection(db, 'users', userId, 'customers'), (snap) => {
-      const custs: Customer[] = [];
-      snap.forEach((d) => {
-        custs.push({ id: d.id, ...d.data() } as Customer);
-      });
-      custs.sort((a, b) => a.fullName.localeCompare(b.fullName));
-      setCustomers(custs);
-    }, (error) => {
-      console.error("Customers subscription error:", error);
-    });
-
-    // Listen to Bookings
-    const unsubBookings = onSnapshot(collection(db, 'users', userId, 'bookings'), (snap) => {
-      const bgs: Booking[] = [];
-      snap.forEach((d) => {
-        bgs.push({ id: d.id, ...d.data() } as Booking);
-      });
-      bgs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setBookings(bgs);
-    }, (error) => {
-      console.error("Bookings subscription error:", error);
-    });
-
-    // Listen to Incoming Requests
-    const unsubRequests = onSnapshot(collection(db, 'users', userId, 'incomingRequests'), (snap) => {
-      const reqs: any[] = [];
-      snap.forEach((d) => {
-        reqs.push({ id: d.id, ...d.data() });
-      });
-      reqs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      setIncomingRequests(reqs);
-      setLoading(false);
-    }, (error) => {
-      console.error("IncomingRequests subscription error:", error);
-      setLoading(false);
-    });
-
-    return () => {
-      unsubUser();
-      unsubCustomers();
-      unsubBookings();
-      unsubRequests();
-    };
-  }, [firebaseUser, isLocalMode]);
-
-  // Auth Operations
-  const loginWithEmail = async (email: string, password: string) => {
-    if (isLocalMode) {
-      toast.success("Signed in (Local Mode)!");
-      return;
-    }
-    setAuthError(null);
+  const triggerSave = (newData: any) => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      toast.success("Welcome back!");
-    } catch (e: any) {
-      setAuthError(e.message || "Failed to log in");
-      toast.error(e.message || "Login failed");
-      throw e;
+      localStorage.setItem('crown_crm_data', JSON.stringify(newData));
+    } catch (e) {
+      console.error("Failed to sync to local storage", e);
     }
   };
-
-  const registerWithEmail = async (email: string, password: string, name: string, role: 'admin' | 'technician') => {
-    if (isLocalMode) {
-      localStorage.setItem('CRM_LOCAL_USER_NAME', name);
-      localStorage.setItem('CRM_LOCAL_USER_ROLE', role);
-      setUser(prev => prev ? { ...prev, name, role } : null);
-      toast.success("Account registered (Local Mode)!");
-      return;
-    }
-    setAuthError(null);
-    try {
-      const credential = await createUserWithEmailAndPassword(auth, email, password);
-      const userId = credential.user.uid;
-      
-      await setDoc(doc(db, 'users', userId), {
-        uid: userId,
-        email,
-        name,
-        role,
-        sheetCsvUrl: '',
-        createdAt: new Date().toISOString()
-      });
-      
-      toast.success("Account registered successfully!");
-    } catch (e: any) {
-      setAuthError(e.message || "Registration failed");
-      toast.error(e.message || "Registration failed");
-      throw e;
-    }
+  
+  const setSheetCsvUrl = (url: string) => {
+    setSheetCsvUrlState(url);
+    triggerSave({ customers, bookings, vehicles, incomingRequests, sheetCsvUrl: url });
   };
 
-  const loginWithGoogle = async () => {
-    if (isLocalMode) {
-      toast.success("Signed in (Local Mode)!");
-      return;
-    }
-    setAuthError(null);
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-      toast.success("Signed in with Google!");
-    } catch (e: any) {
-      setAuthError(e.message || "Google login failed");
-      toast.error(e.message || "Google login failed");
-      throw e;
-    }
-  };
-
-  const logout = async () => {
-    if (isLocalMode) {
-      disableLocalMode();
-      toast.success("Signed out of Local Demo Mode.");
-      return;
-    }
-    try {
-      await signOut(auth);
-      toast.success("Signed out safely.");
-    } catch (e: any) {
-      toast.error("Logout failed");
-    }
-  };
-
-  // Switch to Local Offline Fallback Mode
-  const enableLocalMode = (name?: string, role?: 'admin' | 'technician') => {
-    localStorage.setItem('CRM_LOCAL_MODE', 'true');
-    localStorage.setItem('CRM_LOCAL_USER_NAME', name || 'Demo Owner');
-    localStorage.setItem('CRM_LOCAL_USER_ROLE', role || 'admin');
-    setIsLocalMode(true);
-  };
-
-  const disableLocalMode = () => {
-    localStorage.removeItem('CRM_LOCAL_MODE');
-    localStorage.removeItem('CRM_LOCAL_USER_NAME');
-    localStorage.removeItem('CRM_LOCAL_USER_ROLE');
-    setIsLocalMode(false);
-    setUser(null);
-    setCustomers([]);
-    setBookings([]);
-    setIncomingRequests([]);
-    setSheetCsvUrlState('');
-  };
-
-  // Google Sheet Link Update
-  const setSheetCsvUrl = async (url: string) => {
-    if (isLocalMode) {
-      localStorage.setItem('CRM_LOCAL_SHEET_CSV_URL', url);
-      setSheetCsvUrlState(url);
-      toast.success("Google Sheets link saved locally!");
-      return;
-    }
-
-    if (!firebaseUser) return;
-    try {
-      await updateDoc(doc(db, 'users', firebaseUser.uid), {
-        sheetCsvUrl: url
-      });
-      setSheetCsvUrlState(url);
-      toast.success("Google Sheets link saved!");
-    } catch (e: any) {
-      console.error("Failed to update sheet CSV URL", e);
-      toast.error("Failed to save settings");
-    }
-  };
-
-  // Google Forms responses CSV sync
+  const login = async () => {};
+  
   const syncFromGoogleForm = async () => {
     if (!sheetCsvUrl) {
       toast.error("Please enter a Google Sheet CSV URL in the Admin tab.");
@@ -380,7 +111,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       Papa.parse(csvText, {
         header: true,
         skipEmptyLines: true,
-        complete: async (results) => {
+        complete: (results) => {
           const newRequests: any[] = [];
           
           results.data.forEach((row: any) => {
@@ -392,15 +123,15 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             
             const timestamp = getVal(['timestamp', 'date', 'time']) || new Date().toISOString();
             const fullName = getVal(['name', 'first', 'last', 'customer', 'client']) || getVal(['who']) || 'Unknown Customer';
-            const phoneNumber = getVal(['phone', 'mobile', 'cell', 'number', 'contact']) || '';
-            const email = getVal(['email', 'mail']) || '';
-            const address = getVal(['address', 'location', 'where']) || '';
-            const city = getVal(['city', 'town', 'zip']) || '';
-            const vehicleMakeModel = getVal(['vehicle', 'make', 'model', 'car', 'auto', 'truck']) || '';
-            const serviceRequested = getVal(['service', 'package', 'detail', 'type', 'what']) || '';
-            const preferredDate = getVal(['date', 'when']) || '';
-            const preferredTime = getVal(['time']) || '';
-            const notes = getVal(['notes', 'message', 'additional', 'anything']) || '';
+            const phoneNumber = getVal(['phone', 'mobile', 'cell', 'number', 'contact']);
+            const email = getVal(['email', 'mail']);
+            const address = getVal(['address', 'location', 'where']);
+            const city = getVal(['city', 'town', 'zip']);
+            const vehicleMakeModel = getVal(['vehicle', 'make', 'model', 'car', 'auto', 'truck']);
+            const serviceRequested = getVal(['service', 'package', 'detail', 'type', 'what']);
+            const preferredDate = getVal(['date', 'when']);
+            const preferredTime = getVal(['time']);
+            const notes = getVal(['notes', 'message', 'additional', 'anything']);
             
             const hasData = Object.values(row).some(v => typeof v === 'string' && v.trim() !== '');
             
@@ -425,170 +156,127 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           });
           
-          const existingIds = new Set(incomingRequests.map(r => r.id));
-          const toAdd = newRequests.filter(r => !existingIds.has(r.id));
-          
-          if (toAdd.length === 0) {
-            toast.success("No new requests found. You're all caught up!");
-            setIsSyncing(false);
-            return;
-          }
-          
-          if (isLocalMode) {
-            const updatedReqs = [...toAdd, ...incomingRequests];
-            updatedReqs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-            localStorage.setItem('CRM_LOCAL_REQUESTS', JSON.stringify(updatedReqs));
-            setIncomingRequests(updatedReqs);
-            toast.success(`Successfully imported ${toAdd.length} new request(s) locally!`);
-            setIsSyncing(false);
-          } else {
-            if (!firebaseUser) return;
-            const batch = writeBatch(db);
-            toAdd.forEach((req) => {
-              const docRef = doc(db, 'users', firebaseUser.uid, 'incomingRequests', req.id);
-              batch.set(docRef, req);
-            });
-            await batch.commit();
-            toast.success(`Successfully imported ${toAdd.length} new request(s)!`);
-            setIsSyncing(false);
-          }
+          setIncomingRequests(prev => {
+             const existingIds = new Set(prev.map(r => r.id));
+             const toAdd = newRequests.filter(r => !existingIds.has(r.id));
+             
+             if (toAdd.length === 0) {
+               toast.success("No new requests found. You're all caught up!");
+               return prev;
+             }
+             
+             const updated = [...prev, ...toAdd];
+             triggerSave({ customers, bookings, vehicles, incomingRequests: updated, sheetCsvUrl });
+             toast.success(`Successfully imported ${toAdd.length} new request(s)!`);
+             return updated;
+          });
         },
         error: (error) => {
           console.error("CSV Parse Error:", error);
           toast.error("Error parsing the Google Form data.");
-          setIsSyncing(false);
         }
       });
     } catch (error) {
       console.error("Sync Error:", error);
-      toast.error("Failed to sync from Google Forms.");
+      toast.error("Failed to sync from Google Forms. Please ensure you copied the 'Published to the web (CSV)' URL correctly.");
+    } finally {
       setIsSyncing(false);
     }
   };
 
-  // Customer CRUD Operations
   const addCustomer = async (data: Omit<Customer, 'id' | 'createdAt'>) => {
     const newId = generateId('cus');
     const now = new Date().toISOString();
-    const customer = { ...data, userId: user?.id || 'local', id: newId, createdAt: now, updatedAt: now } as Customer;
-
-    if (isLocalMode) {
-      const updated = [customer, ...customers];
-      updated.sort((a, b) => a.fullName.localeCompare(b.fullName));
-      localStorage.setItem('CRM_LOCAL_CUSTOMERS', JSON.stringify(updated));
-      setCustomers(updated);
-      return customer;
-    } else {
-      if (!firebaseUser) throw new Error("User not authenticated");
-      await setDoc(doc(db, 'users', firebaseUser.uid, 'customers', newId), customer);
-      return customer;
-    }
+    const customer = { ...data, id: newId, createdAt: now } as Customer;
+    
+    setCustomers(prev => {
+      const updated = [...prev, customer];
+      triggerSave({ customers: updated, bookings, vehicles, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
+    return customer;
   };
 
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    const now = new Date().toISOString();
-
-    if (isLocalMode) {
-      const updated = customers.map(c => c.id === id ? { ...c, ...updates, updatedAt: now } : c);
-      updated.sort((a, b) => a.fullName.localeCompare(b.fullName));
-      localStorage.setItem('CRM_LOCAL_CUSTOMERS', JSON.stringify(updated));
-      setCustomers(updated);
-    } else {
-      if (!firebaseUser) throw new Error("User not authenticated");
-      await updateDoc(doc(db, 'users', firebaseUser.uid, 'customers', id), {
-        ...updates,
-        updatedAt: now
-      });
-    }
+    setCustomers(prev => {
+      const updated = prev.map(c => c.id === id ? { ...c, ...updates } : c);
+      triggerSave({ customers: updated, bookings, vehicles, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
   };
 
   const deleteCustomer = async (id: string) => {
-    if (isLocalMode) {
-      const updated = customers.filter(c => c.id !== id);
-      localStorage.setItem('CRM_LOCAL_CUSTOMERS', JSON.stringify(updated));
-      setCustomers(updated);
-    } else {
-      if (!firebaseUser) throw new Error("User not authenticated");
-      await deleteDoc(doc(db, 'users', firebaseUser.uid, 'customers', id));
-    }
+    setCustomers(prev => {
+      const updated = prev.filter(c => c.id !== id);
+      triggerSave({ customers: updated, bookings, vehicles, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
   };
 
-  // Bookings CRUD Operations
   const addBooking = async (data: Omit<Booking, 'id' | 'createdAt'>) => {
     const newId = generateId('bkg');
     const now = new Date().toISOString();
-    const booking = { ...data, userId: user?.id || 'local', id: newId, createdAt: now, updatedAt: now } as Booking;
-
-    if (isLocalMode) {
-      const updated = [booking, ...bookings];
-      updated.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      localStorage.setItem('CRM_LOCAL_BOOKINGS', JSON.stringify(updated));
-      setBookings(updated);
-      return booking;
-    } else {
-      if (!firebaseUser) throw new Error("User not authenticated");
-      await setDoc(doc(db, 'users', firebaseUser.uid, 'bookings', newId), booking);
-      return booking;
-    }
+    const booking = { ...data, id: newId, createdAt: now } as Booking;
+    
+    setBookings(prev => {
+      const updated = [booking, ...prev];
+      triggerSave({ customers, bookings: updated, vehicles, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
+    return booking;
   };
 
   const updateBooking = async (id: string, updates: Partial<Booking>) => {
-    const now = new Date().toISOString();
-
-    if (isLocalMode) {
-      const updated = bookings.map(b => b.id === id ? { ...b, ...updates, updatedAt: now } : b);
-      updated.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      localStorage.setItem('CRM_LOCAL_BOOKINGS', JSON.stringify(updated));
-      setBookings(updated);
-    } else {
-      if (!firebaseUser) throw new Error("User not authenticated");
-      await updateDoc(doc(db, 'users', firebaseUser.uid, 'bookings', id), {
-        ...updates,
-        updatedAt: now
-      });
-    }
+    setBookings(prev => {
+      const updated = prev.map(b => b.id === id ? { ...b, ...updates } : b);
+      triggerSave({ customers, bookings: updated, vehicles, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
   };
 
   const deleteBooking = async (id: string) => {
-    if (isLocalMode) {
-      const updated = bookings.filter(b => b.id !== id);
-      localStorage.setItem('CRM_LOCAL_BOOKINGS', JSON.stringify(updated));
-      setBookings(updated);
-    } else {
-      if (!firebaseUser) throw new Error("User not authenticated");
-      await deleteDoc(doc(db, 'users', firebaseUser.uid, 'bookings', id));
-    }
+    setBookings(prev => {
+      const updated = prev.filter(b => b.id !== id);
+      triggerSave({ customers, bookings: updated, vehicles, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
   };
 
-  // Vehicles CRUD (Local State)
   const addVehicle = async (data: Omit<Vehicle, 'id' | 'createdAt'>) => {
     const newId = generateId('veh');
     const now = new Date().toISOString();
     const vehicle = { ...data, id: newId, createdAt: now } as Vehicle;
-    setVehicles(prev => [...prev, vehicle]);
+    
+    setVehicles(prev => {
+      const updated = [...prev, vehicle];
+      triggerSave({ customers, bookings, vehicles: updated, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
     return vehicle;
   };
 
   const updateVehicle = async (id: string, updates: Partial<Vehicle>) => {
-    setVehicles(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
+    setVehicles(prev => {
+      const updated = prev.map(v => v.id === id ? { ...v, ...updates } : v);
+      triggerSave({ customers, bookings, vehicles: updated, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
   };
 
   const deleteVehicle = async (id: string) => {
-    setVehicles(prev => prev.filter(v => v.id !== id));
+    setVehicles(prev => {
+      const updated = prev.filter(v => v.id !== id);
+      triggerSave({ customers, bookings, vehicles: updated, incomingRequests, sheetCsvUrl });
+      return updated;
+    });
   };
 
-  // Sync Google Forms requests status mutation
   const updateIncomingRequest = async (id: string, status: string) => {
-    if (isLocalMode) {
-      const updated = incomingRequests.map(r => r.id === id ? { ...r, status } : r);
-      localStorage.setItem('CRM_LOCAL_REQUESTS', JSON.stringify(updated));
-      setIncomingRequests(updated);
-    } else {
-      if (!firebaseUser) return;
-      await updateDoc(doc(db, 'users', firebaseUser.uid, 'incomingRequests', id), {
-        status
-      });
-    }
+    setIncomingRequests(prev => {
+      const updated = prev.map(r => r.id === id ? { ...r, status: status as any } : r);
+      triggerSave({ customers, bookings, vehicles, incomingRequests: updated, sheetCsvUrl });
+      return updated;
+    });
   };
 
   const refreshRequests = async () => {
@@ -600,10 +288,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       user,
       loading,
       authError,
-      loginWithEmail,
-      registerWithEmail,
-      loginWithGoogle,
-      logout,
+      login,
       customers,
       addCustomer,
       updateCustomer,
@@ -622,10 +307,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sheetCsvUrl,
       setSheetCsvUrl,
       syncFromGoogleForm,
-      isSyncing,
-      isLocalMode,
-      enableLocalMode,
-      disableLocalMode
+      isSyncing
     }}>
       {children}
     </CRMContext.Provider>

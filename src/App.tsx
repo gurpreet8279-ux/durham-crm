@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Users, CalendarDays, Crown, Map as MapIcon, Settings, FileSpreadsheet, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, CalendarDays, Crown, Map as MapIcon, Settings, FileSpreadsheet } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
@@ -12,7 +12,6 @@ import { useCRM, CRMProvider } from './store/useCRM';
 import { DialogProvider } from './components/DialogProvider';
 
 function MainApp() {
-  const { user, logout, isLocalMode, disableLocalMode } = useCRM();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'reports' | 'admin'>('manifest');
   
   const tabs = [
@@ -23,14 +22,6 @@ function MainApp() {
     { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
     { id: 'admin', label: 'Admin', icon: Settings },
   ] as const;
-
-  // Filter tabs: Technician only sees Manifest, Bookings, Customers
-  const visibleTabs = tabs.filter(tab => {
-    if (user?.role === 'technician') {
-      return tab.id === 'manifest' || tab.id === 'bookings' || tab.id === 'customers';
-    }
-    return true;
-  });
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
@@ -43,24 +34,17 @@ function MainApp() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-tight leading-none mb-1">Crown CRM</h1>
-              <div className="flex flex-col gap-1">
-                <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Durham's Detailing</p>
-                {isLocalMode && (
-                  <span className="self-start px-1.5 py-0.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded text-[9px] font-extrabold uppercase tracking-wider leading-none">
-                    Local Demo Mode
-                  </span>
-                )}
-              </div>
+              <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Durham's Detailing</p>
             </div>
           </div>
         </div>
         
         <nav className="flex-1 px-4 space-y-1 overflow-y-auto mt-4">
-          {visibleTabs.map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
@@ -69,26 +53,6 @@ function MainApp() {
             </button>
           ))}
         </nav>
-
-        {/* User Info & Logout Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/40 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="w-9 h-9 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 uppercase">
-              {user?.name?.charAt(0) || 'U'}
-            </div>
-            <div className="truncate">
-              <p className="text-xs font-semibold text-white leading-none truncate">{user?.name}</p>
-              <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-1">{user?.role}</p>
-            </div>
-          </div>
-          <button 
-            onClick={logout}
-            title="Sign Out"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-          >
-            <LogOut size={16} />
-          </button>
-        </div>
       </aside>
 
       {/* Main Content */}
@@ -98,32 +62,14 @@ function MainApp() {
         <header className="md:hidden bg-white border-b border-slate-200 px-4 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
             <Crown size={24} className="text-blue-600" />
-            <div className="flex flex-col">
-              <h1 className="font-bold text-slate-900 leading-tight">Crown CRM</h1>
-              {isLocalMode && (
-                <span className="self-start px-1 py-0.2 bg-amber-500/10 text-amber-600 border border-amber-500/20 rounded text-[8px] font-extrabold uppercase tracking-wider leading-none">
-                  Local Mode
-                </span>
-              )}
-            </div>
+            <h1 className="font-bold text-slate-900">Crown CRM</h1>
           </div>
-          <div className="flex items-center gap-2">
-            {user?.role !== 'technician' && (
-              <button 
-                onClick={() => setActiveTab('admin')}
-                className={`p-2 rounded-lg transition-colors cursor-pointer ${activeTab === 'admin' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'}`}
-              >
-                <Settings size={20} />
-              </button>
-            )}
-            <button 
-              onClick={logout}
-              className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-              title="Sign Out"
-            >
-              <LogOut size={20} />
-            </button>
-          </div>
+          <button 
+            onClick={() => setActiveTab('admin')}
+            className={`p-2 rounded-lg transition-colors ${activeTab === 'admin' ? 'bg-slate-100 text-slate-900' : 'text-slate-500'}`}
+          >
+            <Settings size={20} />
+          </button>
         </header>
 
         {/* Content Area */}
@@ -147,16 +93,16 @@ function MainApp() {
 
       {/* Bottom Navigation - Mobile Only */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-[72px] pb-safe z-50 px-2">
-        {visibleTabs.map((tab) => (
+        {tabs.slice(0, 5).map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex flex-col items-center justify-center w-full h-full gap-1 cursor-pointer ${
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 ${
               activeTab === tab.id ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
             }`}
           >
             <tab.icon size={22} className={activeTab === tab.id ? 'text-blue-600' : ''} />
-            <span className="text-[10px] font-semibold leading-none">{tab.label}</span>
+            <span className="text-[10px] font-medium leading-none">{tab.label}</span>
           </button>
         ))}
       </nav>
@@ -166,13 +112,13 @@ function MainApp() {
 
 export default function App() {
   return (
-    <DialogProvider>
-      <CRMProvider>
-        <AuthWrapper>
+    <AuthWrapper>
+      <DialogProvider>
+        <CRMProvider>
           <MainApp />
           <Toaster position="bottom-right" />
-        </AuthWrapper>
-      </CRMProvider>
-    </DialogProvider>
+        </CRMProvider>
+      </DialogProvider>
+    </AuthWrapper>
   );
 }

@@ -12,7 +12,7 @@ import { useCRM, CRMProvider } from './store/useCRM';
 import { DialogProvider } from './components/DialogProvider';
 
 function MainApp() {
-  const { user, logout } = useCRM();
+  const { user, logout, isLocalMode, disableLocalMode } = useCRM();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'reports' | 'admin'>('manifest');
   
   const tabs = [
@@ -43,7 +43,14 @@ function MainApp() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-tight leading-none mb-1">Crown CRM</h1>
-              <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Durham's Detailing</p>
+              <div className="flex flex-col gap-1">
+                <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Durham's Detailing</p>
+                {isLocalMode && (
+                  <span className="self-start px-1.5 py-0.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded text-[9px] font-extrabold uppercase tracking-wider leading-none">
+                    Local Demo Mode
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -91,7 +98,14 @@ function MainApp() {
         <header className="md:hidden bg-white border-b border-slate-200 px-4 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
             <Crown size={24} className="text-blue-600" />
-            <h1 className="font-bold text-slate-900">Crown CRM</h1>
+            <div className="flex flex-col">
+              <h1 className="font-bold text-slate-900 leading-tight">Crown CRM</h1>
+              {isLocalMode && (
+                <span className="self-start px-1 py-0.2 bg-amber-500/10 text-amber-600 border border-amber-500/20 rounded text-[8px] font-extrabold uppercase tracking-wider leading-none">
+                  Local Mode
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {user?.role !== 'technician' && (

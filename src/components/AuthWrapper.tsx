@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useCRM } from '../store/useCRM';
-import { Crown, Mail, Lock, User as UserIcon, Shield, Sparkles, LogIn, UserPlus } from 'lucide-react';
+import { Crown, Mail, Lock, User as UserIcon, Shield, Sparkles, LogIn, UserPlus, HelpCircle, Database, RefreshCw, Key } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { setCustomFirebaseConfig, resetToDefaultFirebaseConfig } from '../lib/firebase';
+import toast from 'react-hot-toast';
 
 interface AuthWrapperProps {
   children: React.ReactNode;
@@ -14,7 +16,9 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
     loginWithEmail, 
     registerWithEmail, 
     loginWithGoogle, 
-    authError 
+    authError,
+    enableLocalMode,
+    isLocalMode
   } = useCRM();
 
   const [isSignUp, setIsSignUp] = useState(false);
@@ -24,6 +28,14 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
   const [role, setRole] = useState<'admin' | 'technician'>('admin');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Custom Firebase setup states
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [customConfigText, setCustomConfigText] = useState(() => {
+    return localStorage.getItem('CUSTOM_FIREBASE_CONFIG') || '';
+  });
+
+  const isCustomFirebaseActive = !!localStorage.getItem('CUSTOM_FIREBASE_CONFIG');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +52,13 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
         await loginWithEmail(email, password);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || "An error occurred. Please try again.");
+      let friendlyError = err.message || "An error occurred. Please try again.";
+      if (err.code === 'auth/operation-not-allowed') {
+        friendlyError = "Email/Password sign-in is not enabled in this Firebase project. Please use 'Local Offline Mode' below or link your own custom Firebase project.";
+      } else if (err.code === 'auth/unauthorized-domain') {
+        friendlyError = "This domain is not authorized for sign-in. Please use 'Local Offline Mode' below or link your own custom Firebase project.";
+      }
+      setErrorMsg(friendlyError);
     } finally {
       setSubmitting(false);
     }
@@ -52,10 +70,44 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
     try {
       await loginWithGoogle();
     } catch (err: any) {
-      setErrorMsg(err.message || "Google sign-in failed.");
+      let friendlyError = err.message || "Google sign-in failed.";
+      if (err.code === 'auth/operation-not-allowed') {
+        friendlyError = "Google Sign-In is disabled for this project. Please use 'Local Offline Mode' below or link your own Firebase project.";
+      } else if (err.code === 'auth/unauthorized-domain') {
+        friendlyError = "This domain is not authorized for Google Sign-In. Please use 'Local Offline Mode' below or link your own Firebase project.";
+      }
+      setErrorMsg(friendlyError);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSaveCustomConfig = () => {
+    if (!customConfigText.trim()) {
+      toast.error("Please paste a valid Firebase config JSON");
+      return;
+    }
+    try {
+      // Validate that it's correct JSON
+      const parsed = JSON.parse(customConfigText);
+      if (!parsed.apiKey || !parsed.projectId) {
+        throw new Error("Config JSON must include apiKey and projectId.");
+      }
+      setCustomFirebaseConfig(parsed);
+      toast.success("Custom Firebase config applied! Reloading...");
+    } catch (e: any) {
+      toast.error(`Invalid JSON configuration: ${e.message}`);
+    }
+  };
+
+  const handleResetConfig = () => {
+    resetToDefaultFirebaseConfig();
+    toast.success("Restored sandbox Firebase configuration! Reloading...");
+  };
+
+  const handleStartLocalMode = () => {
+    enableLocalMode("Demo Owner", "admin");
+    toast.success("Welcome! Entered Local Offline Mode.");
   };
 
   if (loading) {
@@ -73,14 +125,14 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden select-none">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-y-auto select-none">
         {/* Decorative Ambient Background Glows */}
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="w-full max-w-md z-10">
+        <div className="w-full max-w-md z-10 py-8">
           {/* Logo Brand Header */}
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <motion.div 
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -109,11 +161,32 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
 
           {/* Login/Signup Tab controls */}
           <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-2xl p-6 shadow-2xl relative">
+            
+            {/* Quick Demo Offline Mode Launcher - High Prominence for Fallback */}
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-900/40 to-indigo-900/40 border border-blue-500/30 rounded-xl">
+              <div className="flex items-start gap-3 mb-2.5">
+                <Database className="text-blue-400 mt-0.5 flex-shrink-0" size={18} />
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Deploying on custom domain / Netlify?</h4>
+                  <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                    Firebase authentication may be restricted on external domains. Use <strong>Local Storage Mode</strong> for an instant, zero-setup offline database experience.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleStartLocalMode}
+                className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/10 cursor-pointer"
+              >
+                <Database size={14} /> Launch Local Storage Demo Mode
+              </button>
+            </div>
+
             <div className="flex border-b border-slate-800 pb-4 mb-6">
               <button
                 type="button"
                 onClick={() => { setIsSignUp(false); setErrorMsg(null); }}
-                className={`flex-1 text-center pb-2 text-sm font-semibold transition-all relative ${!isSignUp ? 'text-blue-400' : 'text-slate-400 hover:text-slate-300'}`}
+                className={`flex-1 text-center pb-2 text-sm font-semibold transition-all relative cursor-pointer ${!isSignUp ? 'text-blue-400' : 'text-slate-400 hover:text-slate-300'}`}
               >
                 <span className="flex items-center justify-center gap-2">
                   <LogIn size={16} /> Sign In
@@ -128,7 +201,7 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
               <button
                 type="button"
                 onClick={() => { setIsSignUp(true); setErrorMsg(null); }}
-                className={`flex-1 text-center pb-2 text-sm font-semibold transition-all relative ${isSignUp ? 'text-blue-400' : 'text-slate-400 hover:text-slate-300'}`}
+                className={`flex-1 text-center pb-2 text-sm font-semibold transition-all relative cursor-pointer ${isSignUp ? 'text-blue-400' : 'text-slate-400 hover:text-slate-300'}`}
               >
                 <span className="flex items-center justify-center gap-2">
                   <UserPlus size={16} /> Register
@@ -149,7 +222,7 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl p-3 mb-5 overflow-hidden font-medium"
+                  className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-xl p-3 mb-5 overflow-hidden font-medium leading-relaxed"
                 >
                   {errorMsg || authError}
                 </motion.div>
@@ -234,14 +307,14 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
                       <button
                         type="button"
                         onClick={() => setRole('admin')}
-                        className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 ${role === 'admin' ? 'bg-blue-600/10 border-blue-500 text-blue-400' : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-950/80'}`}
+                        className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 cursor-pointer ${role === 'admin' ? 'bg-blue-600/10 border-blue-500 text-blue-400' : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-950/80'}`}
                       >
                         <Shield size={16} /> Admin
                       </button>
                       <button
                         type="button"
                         onClick={() => setRole('technician')}
-                        className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 ${role === 'technician' ? 'bg-blue-600/10 border-blue-500 text-blue-400' : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-950/80'}`}
+                        className={`py-2.5 px-4 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 cursor-pointer ${role === 'technician' ? 'bg-blue-600/10 border-blue-500 text-blue-400' : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-950/80'}`}
                       >
                         <Sparkles size={16} /> Technician
                       </button>
@@ -253,7 +326,7 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-3 mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-500/15 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-500/15 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {submitting ? 'Processing...' : isSignUp ? 'Register Account' : 'Sign In'}
               </button>
@@ -270,7 +343,7 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
             <button
               onClick={handleGoogleSignIn}
               disabled={submitting}
-              className="w-full py-2.5 bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-300 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-3 hover:text-white"
+              className="w-full py-2.5 bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-300 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-3 hover:text-white cursor-pointer"
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path
@@ -293,10 +366,60 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
               Google Account
             </button>
 
-            <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
-              <p className="text-[11px] text-blue-300 font-medium leading-relaxed">
-                <strong>Deployment Tip:</strong> For Netlify, please register and sign in with your <strong>Email & Password</strong> above. Google Account sign-in is restricted to the sandbox environment.
-              </p>
+            {/* Advanced: Connect Custom Firebase config */}
+            <div className="mt-6 border-t border-slate-800 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="w-full flex items-center justify-between text-xs text-slate-400 hover:text-slate-300 font-semibold cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Key size={14} /> Link Your Own Firebase Project
+                </span>
+                <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 uppercase tracking-wider">
+                  {showAdvanced ? 'Hide' : 'Show'}
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {showAdvanced && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden mt-3 space-y-3"
+                  >
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      If you own a Firebase project, paste your Web App Config JSON below. This lets you run Crown CRM on your own Netlify or Vercel instance with full database persistence.
+                    </p>
+                    <textarea
+                      value={customConfigText}
+                      onChange={(e) => setCustomConfigText(e.target.value)}
+                      placeholder='{&#10;  "apiKey": "AIzaSy...",&#10;  "authDomain": "...",&#10;  "projectId": "..."&#10;}'
+                      className="w-full h-28 bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveCustomConfig}
+                        className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw size={12} /> Apply Custom Config
+                      </button>
+                      {isCustomFirebaseActive && (
+                        <button
+                          type="button"
+                          onClick={handleResetConfig}
+                          className="py-2 px-3 bg-rose-950/40 border border-rose-900/40 hover:bg-rose-950 text-rose-400 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                          title="Reset to Sandbox"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
@@ -307,3 +430,4 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
   // User is authenticated, proceed
   return <>{children}</>;
 }
+

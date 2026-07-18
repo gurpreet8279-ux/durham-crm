@@ -1,25 +1,25 @@
 import { useState } from 'react';
-import { LayoutDashboard, Users, CalendarDays, Sparkles, Crown, Map as MapIcon, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, CalendarDays, Crown, Map as MapIcon, Settings, FileSpreadsheet } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import Bookings from './components/Bookings';
-import AIParser from './components/AIParser';
 import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
+import Reports from './components/Reports';
 import AuthWrapper from './components/AuthWrapper';
 import { useCRM, CRMProvider } from './store/useCRM';
 import { DialogProvider } from './components/DialogProvider';
 
 function MainApp() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'parser' | 'admin'>('manifest');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'reports' | 'admin'>('manifest');
   
   const tabs = [
     { id: 'manifest', label: 'Manifest', icon: MapIcon },
     { id: 'bookings', label: 'Bookings', icon: CalendarDays },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
-    { id: 'parser', label: 'AI Parser', icon: Sparkles },
+    { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
     { id: 'admin', label: 'Admin', icon: Settings },
   ] as const;
 
@@ -48,7 +48,7 @@ function MainApp() {
                 activeTab === tab.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
-              <tab.icon size={18} className={activeTab === tab.id ? 'text-white' : tab.id === 'parser' ? 'text-blue-400' : ''} /> 
+              <tab.icon size={18} className={activeTab === tab.id ? 'text-white' : ''} /> 
               {tab.label}
             </button>
           ))}
@@ -85,7 +85,7 @@ function MainApp() {
             {activeTab === 'manifest' && <Manifest />}
             {activeTab === 'customers' && <Customers />}
             {activeTab === 'bookings' && <Bookings />}
-            {activeTab === 'parser' && <AIParser />}
+            {activeTab === 'reports' && <Reports />}
             {activeTab === 'admin' && <AdminDashboard />}
           </div>
         </div>
@@ -101,7 +101,7 @@ function MainApp() {
               activeTab === tab.id ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
             }`}
           >
-            <tab.icon size={22} className={activeTab === tab.id && tab.id === 'parser' ? 'text-blue-600' : tab.id === 'parser' ? 'text-blue-400' : ''} />
+            <tab.icon size={22} className={activeTab === tab.id ? 'text-blue-600' : ''} />
             <span className="text-[10px] font-medium leading-none">{tab.label}</span>
           </button>
         ))}

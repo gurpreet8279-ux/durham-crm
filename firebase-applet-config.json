@@ -3,8 +3,10 @@
   "appId": "1:286404423788:web:c30d4704c45f47f1746849",
   "apiKey": "AIzaSyBFzSoNqf9_GpnduwVsDsrAqeAHwK9p66c",
   "authDomain": "flawless-filament-h4k5l.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-crowndetailingcr-89101bd2-4958-4e20-a670-7ef709b37a0b",
   "storageBucket": "flawless-filament-h4k5l.firebasestorage.app",
   "messagingSenderId": "286404423788",
   "measurementId": "",
-  "oAuthClientId": "286404423788-6095l0lg2o13bvioasq2dbscf3qimh7u.apps.googleusercontent.com"
+  "oAuthClientId": "286404423788-6095l0lg2o13bvioasq2dbscf3qimh7u.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

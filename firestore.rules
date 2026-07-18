@@ -5,10 +5,6 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isSignedIn();
     }
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
     
     function isSignedIn() {
       return request.auth != null;
@@ -29,78 +25,80 @@ service cloud.firestore {
     function isValidCustomer(data, userId) {
       return data.userId == userId
         && data.fullName is string && data.fullName.size() <= 100
-        && (!("phoneNumber" in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20))
+        && (!("phoneNumber" in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 40))
         && (!("email" in data) || (data.email is string && data.email.size() <= 100))
         && (!("address" in data) || (data.address is string && data.address.size() <= 200))
         && (!("city" in data) || (data.city is string && data.city.size() <= 100))
-        && (!("vehicles" in data) || (data.vehicles is list && data.vehicles.size() <= 10 && (data.vehicles.size() == 0 || data.vehicles[0] is string)))
-        && (!("notes" in data) || (data.notes is string && data.notes.size() <= 1000))
-        && (!("lastServiceDate" in data) || (data.lastServiceDate is string && data.lastServiceDate.size() <= 20));
+        && (!("vehicles" in data) || (data.vehicles is list))
+        && (!("notes" in data) || (data.notes is string && data.notes.size() <= 2000))
+        && (!("lastServiceDate" in data) || (data.lastServiceDate is string && data.lastServiceDate.size() <= 50));
     }
     
     function isValidBooking(data, userId) {
       return data.userId == userId
         && data.customerId is string
-        && data.date is string && data.date.size() <= 20
-        && (!("time" in data) || (data.time is string && data.time.size() <= 10))
+        && data.date is string && data.date.size() <= 50
+        && (!("time" in data) || (data.time is string && data.time.size() <= 20))
         && (!("vehicle" in data) || (data.vehicle is string && data.vehicle.size() <= 100))
-        && data['service'] is string && data['service'].size() <= 100
+        && data['service'] is string && data['service'].size() <= 150
         && (!("price" in data) || data.price is number)
         && data.status is string && data.status.matches('^(Pending|Confirmed|On The Way|Completed|Cancelled)$')
         && (!("paymentStatus" in data) || (data.paymentStatus is string && data.paymentStatus.matches('^(Unpaid|Paid)$')))
-        && (!("notes" in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!("notes" in data) || (data.notes is string && data.notes.size() <= 2000))
         && (!("duration" in data) || data.duration is number);
     }
     
-    match /users/{userId}/customers/{customerId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
       
-      allow create: if isSignedIn() 
-        && request.auth.uid == userId
-        && isValidId(userId)
-        && isValidId(customerId)
-        && isValidCustomer(incoming(), userId)
-        && incoming().keys().hasAll(["userId", "fullName", "createdAt", "updatedAt"])
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+      match /customers/{customerId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
         
-      allow update: if isSignedIn()
-        && request.auth.uid == userId
-        && isValidId(userId)
-        && isValidId(customerId)
-        && isValidCustomer(incoming(), userId)
-        && incoming().userId == existing().userId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasAny(["fullName", "phoneNumber", "email", "address", "city", "vehicles", "notes", "lastServiceDate", "updatedAt"]);
-        
-      allow delete: if isSignedIn() && request.auth.uid == userId;
-    }
-    
-    match /users/{userId}/bookings/{bookingId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() 
+          && request.auth.uid == userId
+          && isValidId(userId)
+          && isValidId(customerId)
+          && isValidCustomer(incoming(), userId)
+          && incoming().keys().hasAll(["userId", "fullName", "createdAt", "updatedAt"]);
+          
+        allow update: if isSignedIn()
+          && request.auth.uid == userId
+          && isValidId(userId)
+          && isValidId(customerId)
+          && isValidCustomer(incoming(), userId)
+          && incoming().userId == existing().userId;
+          
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
       
-      allow create: if isSignedIn() 
-        && request.auth.uid == userId
-        && isValidId(userId)
-        && isValidId(bookingId)
-        && isValidBooking(incoming(), userId)
-        && incoming().keys().hasAll(["userId", "customerId", "date", "service", "status", "createdAt", "updatedAt"])
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+      match /bookings/{bookingId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
         
-      allow update: if isSignedIn()
-        && request.auth.uid == userId
-        && isValidId(userId)
-        && isValidId(bookingId)
-        && isValidBooking(incoming(), userId)
-        && incoming().userId == existing().userId
-        && incoming().customerId == existing().customerId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasAny(["date", "time", "vehicle", "service", "price", "status", "paymentStatus", "notes", "duration", "updatedAt"]);
-        
-      allow delete: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() 
+          && request.auth.uid == userId
+          && isValidId(userId)
+          && isValidId(bookingId)
+          && isValidBooking(incoming(), userId)
+          && incoming().keys().hasAll(["userId", "customerId", "date", "service", "status", "createdAt", "updatedAt"]);
+          
+        allow update: if isSignedIn()
+          && request.auth.uid == userId
+          && isValidId(userId)
+          && isValidId(bookingId)
+          && isValidBooking(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().customerId == existing().customerId;
+          
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+      
+      match /incomingRequests/{requestId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+      
+      match /settings/{settingsId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
     }
   }
 }

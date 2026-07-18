@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A detailing business user/employee",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "technician"] },
+        "sheetCsvUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "name", "role", "createdAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer of the detailing business",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "fullName": { "type": "string", "maxLength": 100 },
+        "phoneNumber": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 100 },
+        "address": { "type": "string", "maxLength": 200 },
+        "city": { "type": "string", "maxLength": 100 },
+        "vehicles": { "type": "array", "items": { "type": "string", "maxLength": 100 } },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "lastServiceDate": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "fullName", "createdAt", "updatedAt"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "A detailing booking",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "date": { "type": "string", "maxLength": 50 },
+        "time": { "type": "string", "maxLength": 20 },
+        "vehicle": { "type": "string", "maxLength": 100 },
+        "service": { "type": "string", "maxLength": 150 },
+        "price": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Confirmed", "On The Way", "Completed", "Cancelled"] },
+        "paymentStatus": { "type": "string", "enum": ["Unpaid", "Paid"] },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "duration": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "customerId", "date", "service", "status", "createdAt", "updatedAt"]
+    },
+    "IncomingRequest": {
+      "title": "IncomingRequest",
+      "description": "A sync request from Google Forms",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "fullName": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "vehicleMakeModel": { "type": "string" },
+        "serviceRequested": { "type": "string" },
+        "preferredDate": { "type": "string" },
+        "preferredTime": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "imported", "rejected"] }
+      },
+      "required": ["id", "timestamp", "fullName", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and configuration details."
+    },
+    "/users/{userId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Customers specific to the user."
+    },
+    "/users/{userId}/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Bookings specific to the user."
+    },
+    "/users/{userId}/incomingRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/IncomingRequest" },
+      "description": "Incoming Google Forms requests imported for this user."
+    }
+  }
+}

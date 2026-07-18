@@ -292,6 +292,12 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
               </svg>
               Google Account
             </button>
+
+            <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
+              <p className="text-[11px] text-blue-300 font-medium leading-relaxed">
+                <strong>Deployment Tip:</strong> For Netlify, please register and sign in with your <strong>Email & Password</strong> above. Google Account sign-in is restricted to the sandbox environment.
+              </p>
+            </div>
           </div>
         </div>
       </div>

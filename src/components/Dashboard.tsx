@@ -2,6 +2,7 @@ import { useCRM } from '../store/useCRM';
 import { Users, Calendar as CalendarIcon, DollarSign, Activity, MessageSquare, TrendingUp, Award, Clock, Sparkles } from 'lucide-react';
 import IncomingRequests from './IncomingRequests';
 import { getSmsUrl, triggerSmsForStatusChange } from '../lib/sms';
+import CalendarView from './CalendarView';
 
 export default function Dashboard() {
   const { customers, bookings, updateBooking } = useCRM();
@@ -120,8 +121,10 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         
-        {/* Left Column: Upcoming Schedule */}
+        {/* Left Column: Calendar & Upcoming Schedule */}
         <div className="xl:col-span-2 space-y-6">
+          <CalendarView />
+
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-slate-900">Upcoming Schedule</h3>

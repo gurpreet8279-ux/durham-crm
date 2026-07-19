@@ -39,7 +39,9 @@ export const triggerSmsForStatusChange = (booking: Booking, customer: Customer, 
   if (!customer.phoneNumber) return false;
 
   let message = '';
-  const dateStr = new Date(booking.date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  const [y, m, d] = booking.date.split('-');
+  const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
+  const dateStr = dateObj.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
   const timeStr = formatTime12h(booking.time);
 
   switch (nextStatus) {

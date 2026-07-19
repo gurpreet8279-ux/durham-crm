@@ -12,6 +12,17 @@ export default function Dashboard() {
   const completedBookings = bookings.filter(b => ['Completed', 'Paid', 'completed'].includes(b.status));
   const followUpsNeeded = bookings.filter(b => false); // removed as status was removed
   
+  // Date helpers
+  const parseLocalDate = (dStr: string) => {
+    const [y, m, d] = dStr.split('-');
+    return new Date(Number(y), Number(m) - 1, Number(d));
+  };
+  const parseLocalDatetime = (dStr: string, tStr: string = '00:00') => {
+    const [y, m, d] = dStr.split('-');
+    const [hr, min] = tStr.split(':');
+    return new Date(Number(y), Number(m) - 1, Number(d), Number(hr), Number(min));
+  };
+
   // Date calculations
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -22,10 +33,10 @@ export default function Dashboard() {
   // Revenue calculations
   const totalRevenue = completedBookings.reduce((sum, b) => sum + (b.price || 0), 0);
   const weeklyRevenue = completedBookings
-    .filter(b => new Date(`${b.date}T00:00:00`) >= startOfWeek)
+    .filter(b => parseLocalDate(b.date) >= startOfWeek)
     .reduce((sum, b) => sum + (b.price || 0), 0);
   const monthlyRevenue = completedBookings
-    .filter(b => new Date(`${b.date}T00:00:00`) >= startOfMonth)
+    .filter(b => parseLocalDate(b.date) >= startOfMonth)
     .reduce((sum, b) => sum + (b.price || 0), 0);
 
   const averageSpend = completedBookings.length > 0 ? totalRevenue / completedBookings.length : 0;
@@ -52,8 +63,8 @@ export default function Dashboard() {
   
   const upcomingBookings = [...activeBookings]
     .sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.time || '00:00'}`).getTime();
-      const dateB = new Date(`${b.date}T${b.time || '00:00'}`).getTime();
+      const dateA = parseLocalDatetime(a.date, a.time).getTime();
+      const dateB = parseLocalDatetime(b.date, b.time).getTime();
       return dateA - dateB;
     })
     .slice(0, 5);
@@ -137,8 +148,8 @@ export default function Dashboard() {
                   <div key={b.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className="bg-blue-50 text-blue-600 font-bold p-3 rounded-lg text-center min-w-[60px]">
-                        <div className="text-xs uppercase">{new Date(`${b.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short' })}</div>
-                        <div className="text-xl leading-none mt-1">{new Date(`${b.date}T00:00:00`).getDate()}</div>
+                        <div className="text-xs uppercase">{parseLocalDate(b.date).toLocaleDateString(undefined, { month: 'short' })}</div>
+                        <div className="text-xl leading-none mt-1">{parseLocalDate(b.date).getDate()}</div>
                       </div>
                       <div>
                         <h4 className="font-bold text-slate-900 text-sm">{getCustomerName(b.customerId)}</h4>

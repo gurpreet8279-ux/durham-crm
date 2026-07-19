@@ -19,9 +19,14 @@ export default function Bookings() {
   const [isNewCustomer, setIsNewCustomer] = useState(false);
   const { confirm } = useDialog();
   
+  const getLocalDateString = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   const [formData, setFormData] = useState<Partial<Booking>>({
     customerId: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     time: '09:00',
     duration: 120,
     service: '',
@@ -45,14 +50,25 @@ export default function Bookings() {
   const getCustomerName = (id: string) => customers.find(c => c.id === id)?.fullName || 'Unknown';
   const getCustomer = (id: string) => customers.find(c => c.id === id);
   
+  const parseLocalDatetime = (dStr: string, tStr: string = '00:00') => {
+    const [y, m, d] = dStr.split('-');
+    const [hr, min] = tStr.split(':');
+    return new Date(Number(y), Number(m) - 1, Number(d), Number(hr), Number(min));
+  };
+  
+  const parseLocalDate = (dStr: string) => {
+    const [y, m, d] = dStr.split('-');
+    return new Date(Number(y), Number(m) - 1, Number(d));
+  };
+
   const filteredBookings = bookings
     .filter(b => {
       const cName = getCustomerName(b.customerId).toLowerCase();
       return cName.includes(searchTerm.toLowerCase()) || b.service.toLowerCase().includes(searchTerm.toLowerCase());
     })
     .sort((a, b) => {
-      const dateA = new Date(`${a.date}T${a.time || '00:00'}`).getTime();
-      const dateB = new Date(`${b.date}T${b.time || '00:00'}`).getTime();
+      const dateA = parseLocalDatetime(a.date, a.time).getTime();
+      const dateB = parseLocalDatetime(b.date, b.time).getTime();
       return dateB - dateA;
     });
 
@@ -484,7 +500,7 @@ export default function Bookings() {
                       <td className="px-6 py-4">
                         <div className="font-medium text-slate-900 flex items-center gap-2">
                           <Calendar size={14} className="text-slate-400" />
-                          {new Date(`${booking.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {parseLocalDate(booking.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                         </div>
                         {booking.time && (
                           <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 ml-5">

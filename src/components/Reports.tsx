@@ -104,7 +104,7 @@ export default function Reports() {
       if (!b.date) return false;
       const bDate = parseLocalDate(b.date);
       return bDate >= filterRange.start && bDate <= filterRange.end;
-    }).sort((a, b) => b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || ''));
+    }).sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
   }, [bookings, filterRange]);
 
   // Customer Map for fast lookup
@@ -224,62 +224,49 @@ export default function Reports() {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
 
-      // 1. Draw Royal Navy Top Stripe
-      doc.setFillColor(15, 23, 42); // Slate 900
-      doc.rect(0, 0, pageWidth, 42, 'F');
-
-      // 2. Vector Gold Crown Logo (Hand-crafted beautiful crown)
-      // Left peak
-      doc.setFillColor(234, 179, 8); // Gold 500
-      doc.triangle(165, 10, 168, 25, 160, 25, 'F');
-      // Center peak
-      doc.triangle(175, 7, 179, 25, 171, 25, 'F');
-      // Right peak
-      doc.triangle(185, 10, 188, 25, 180, 25, 'F');
-      // Base band
-      doc.rect(160, 25, 28, 4, 'F');
-      // Little gem circles on top of peaks
-      doc.setFillColor(255, 255, 255);
-      doc.circle(165, 10, 0.7, 'F');
-      doc.circle(175, 7, 0.7, 'F');
-      doc.circle(185, 10, 0.7, 'F');
-
-      // 3. Business Header Text (White on dark background)
-      doc.setTextColor(255, 255, 255);
+      // 1. Clean Professional Header (Black & White)
+      doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.text("Durham's Crown Mobile Detailing", 14, 18);
+      doc.setFontSize(18);
+      doc.text("Durham's Crown Mobile Detailing", 14, 20);
       
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.setTextColor(203, 213, 225); // Slate 300
-      doc.text("Professional Fleet & Private Detailing Portal", 14, 25);
-      doc.text("Phone: (919) 555-0199 | Website: www.durhamscrowndetailing.com", 14, 30);
+      doc.text("123 Main Street, Durham, NC 27701", 14, 26);
+      doc.text("Phone: (919) 555-0199 | Website: www.durhamscrowndetailing.com", 14, 31);
 
-      // 4. Report Meta block
+      // Thin separator line
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.5);
+      doc.line(14, 36, pageWidth - 14, 36);
+
+      // 2. Report Meta block
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(255, 255, 255);
-      doc.text("EXECUTIVE CLIENT SERVICE REPORT", 14, 38);
+      doc.setFontSize(12);
+      doc.text("CLIENT SERVICE REPORT", 14, 46);
 
       const generatedOn = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.setTextColor(148, 163, 184); // Slate 400
-      doc.text(`Report Generated On: ${generatedOn}`, 14, 50);
+      doc.text(`Generated On: ${generatedOn}`, 14, 52);
       
       const filterLabel = preset === 'custom' 
         ? `${formatDateLabel(startDate)} to ${formatDateLabel(endDate)}` 
         : preset.replace('_', ' ').toUpperCase();
-      doc.text(`Date Range: ${filterLabel} (${filteredBookings.length} records)`, 14, 55);
+      doc.text(`Date Range: ${filterLabel} (${filteredBookings.length} records)`, 14, 57);
 
-      // 5. Setup table rows
+      // 3. Setup table rows
       const tableData = filteredBookings.map(b => {
         const cust = customerMap.get(b.customerId);
+        let address = cust?.address || 'N/A';
+        if (cust?.city) {
+          address += `, ${cust.city}`;
+        }
         return [
           b.date,
           cust?.fullName || 'N/A',
           cust?.phoneNumber || 'N/A',
+          address,
           b.vehicle || 'N/A',
           b.service || 'N/A',
           getTechnician(b),
@@ -289,87 +276,74 @@ export default function Reports() {
         ];
       });
 
-      // 6. Build Grid
+      // 4. Build Grid
       autoTable(doc, {
         startY: 62,
-        head: [['Date', 'Customer', 'Phone', 'Vehicle', 'Service', 'Technician', 'Payment', 'Price', 'Status']],
+        head: [['Date', 'Customer', 'Phone', 'Address', 'Vehicle', 'Service', 'Technician', 'Payment', 'Price', 'Status']],
         body: tableData,
-        theme: 'striped',
+        theme: 'plain',
         headStyles: { 
-          fillColor: [15, 23, 42], 
-          textColor: [255, 255, 255], 
-          fontSize: 8, 
-          fontStyle: 'bold' 
+          fillColor: [255, 255, 255], 
+          textColor: [0, 0, 0], 
+          fontSize: 7, 
+          fontStyle: 'bold',
+          lineWidth: { bottom: 0.5 },
+          lineColor: [0, 0, 0]
         },
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        columnStyles: {
-          0: { cellWidth: 16 }, // Date
-          1: { cellWidth: 23 }, // Customer
-          2: { cellWidth: 20 }, // Phone
-          3: { cellWidth: 22 }, // Vehicle
-          4: { cellWidth: 25 }, // Service
-          5: { cellWidth: 32 }, // Technician
-          6: { cellWidth: 18 }, // Payment
-          7: { cellWidth: 13 }, // Price
-          8: { cellWidth: 18 }  // Status
+        bodyStyles: {
+          lineColor: [200, 200, 200],
+          lineWidth: { bottom: 0.1 }
         },
+        styles: { fontSize: 7, cellPadding: 2, textColor: [0, 0, 0] },
         didDrawPage: (data) => {
           const pageCount = (doc as any).internal.getNumberOfPages();
           doc.setFontSize(8);
-          doc.setFont('helvetica', 'italic');
-          doc.setTextColor(148, 163, 184);
-          doc.text("Durham's Crown Mobile Detailing — Premium Finish & Protective Coatings", 14, doc.internal.pageSize.height - 10);
           doc.setFont('helvetica', 'normal');
+          doc.setTextColor(0, 0, 0);
+          doc.text("Durham's Crown Mobile Detailing", 14, doc.internal.pageSize.height - 10);
           doc.text(`Page ${data.pageNumber} of ${pageCount}`, doc.internal.pageSize.width - 25, doc.internal.pageSize.height - 10);
         }
       });
 
-      // 7. Executive Summary Panel on last page
+      // 5. Summary Panel on last page
       const finalY = (doc as any).lastAutoTable.finalY || 120;
-      const spaceNeeded = 60;
+      const spaceNeeded = 50;
       const pageHeight = doc.internal.pageSize.height;
 
       // Add new page if not enough space
       if (finalY + spaceNeeded > pageHeight - 20) {
         doc.addPage();
-        // Redraw thin header band on extra page
-        doc.setFillColor(15, 23, 42);
-        doc.rect(0, 0, pageWidth, 8, 'F');
       }
 
       const summaryY = finalY + spaceNeeded > pageHeight - 20 ? 15 : finalY + 10;
 
-      // Card Box Border
-      doc.setDrawColor(226, 232, 240); // Slate 200
-      doc.setFillColor(248, 250, 252); // Slate 50
-      doc.roundedRect(14, summaryY, pageWidth - 28, 48, 3, 3, 'FD');
-
       // Title
-      doc.setTextColor(15, 23, 42);
+      doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.text("BUSINESS PERFORMANCE SUMMARY STATISTICS", 18, summaryY + 7);
+      doc.text("SUMMARY STATISTICS", 14, summaryY + 5);
 
       // Horizontal separator line
-      doc.setDrawColor(226, 232, 240);
-      doc.line(18, summaryY + 11, pageWidth - 18, summaryY + 11);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.5);
+      doc.line(14, summaryY + 8, pageWidth - 14, summaryY + 8);
 
       // Data Grid
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(51, 65, 85); // Slate 700
+      doc.setFontSize(9);
+      doc.setTextColor(0, 0, 0);
 
       // Left Column
-      doc.text(`Total Bookings Scheduled:  ${metrics.totalBookings}`, 20, summaryY + 18);
-      doc.text(`Active Unique Clients:     ${metrics.totalClients}`, 20, summaryY + 25);
-      doc.text(`Total Period Revenue:      $${metrics.totalRevenue.toFixed(2)}`, 20, summaryY + 32);
-      doc.text(`Average Booking Value:     $${metrics.avgBookingValue.toFixed(2)}`, 20, summaryY + 39);
+      doc.text(`Total Bookings:      ${metrics.totalBookings}`, 14, summaryY + 16);
+      doc.text(`Unique Clients:      ${metrics.totalClients}`, 14, summaryY + 23);
+      doc.text(`Total Revenue:       $${metrics.totalRevenue.toFixed(2)}`, 14, summaryY + 30);
+      doc.text(`Average Ticket:      $${metrics.avgBookingValue.toFixed(2)}`, 14, summaryY + 37);
 
       // Right Column
-      doc.text(`Most Popular Service:      ${metrics.popularService}`, 110, summaryY + 18);
-      doc.text(`Top Account Client:        ${metrics.frequentCustomer}`, 110, summaryY + 25);
-      doc.text(`Completed Jobs:            ${metrics.completedCount}`, 110, summaryY + 32);
-      doc.text(`Cancelled Bookings:        ${metrics.cancelledCount}`, 110, summaryY + 39);
+      doc.text(`Most Popular Service:  ${metrics.popularService}`, 100, summaryY + 16);
+      doc.text(`Top Client:            ${metrics.frequentCustomer}`, 100, summaryY + 23);
+      doc.text(`Completed Jobs:        ${metrics.completedCount}`, 100, summaryY + 30);
+      doc.text(`Cancelled Bookings:    ${metrics.cancelledCount}`, 100, summaryY + 37);
 
       // Save Document
       const filename = `Client_Report_${getFileLabel()}.pdf`;

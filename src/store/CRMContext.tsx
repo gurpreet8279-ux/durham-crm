@@ -41,52 +41,68 @@ function generateId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
+function generateDeterministicRequestId(rawInput: string): string {
+  let hash1 = 5381;
+  let hash2 = 52711;
+  for (let i = 0; i < rawInput.length; i++) {
+    const code = rawInput.charCodeAt(i);
+    hash1 = ((hash1 << 5) + hash1) ^ code;
+    hash2 = ((hash2 << 5) + hash2) ^ code;
+  }
+  const cleanPrefix = rawInput.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
+  const hashHex = Math.abs(hash1).toString(36) + Math.abs(hash2).toString(36);
+  return `req_${cleanPrefix}_${hashHex}`;
+}
+
+interface StoredCRMData {
+  customers?: Customer[];
+  bookings?: Booking[];
+  vehicles?: Vehicle[];
+  incomingRequests?: any[];
+  sheetCsvUrl?: string;
+}
+
+const getStoredData = (): StoredCRMData => {
+  try {
+    const raw = localStorage.getItem('crown_crm_data');
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error("Failed to load local CRM data", e);
+  }
+  return {};
+};
+
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>({ id: 'admin', email: 'admin@crown', name: 'Admin' });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [incomingRequests, setIncomingRequests] = useState<any[]>([]);
-  
-  const [sheetCsvUrl, setSheetCsvUrlState] = useState<string>('');
+  const [customers, setCustomers] = useState<Customer[]>(() => getStoredData().customers || []);
+  const [bookings, setBookings] = useState<Booking[]>(() => getStoredData().bookings || []);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() => getStoredData().vehicles || []);
+  const [incomingRequests, setIncomingRequests] = useState<any[]>(() => getStoredData().incomingRequests || []);
+  const [sheetCsvUrl, setSheetCsvUrlState] = useState<string>(() => getStoredData().sheetCsvUrl || '');
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const loadData = () => {
-    try {
-      const data = localStorage.getItem('crown_crm_data');
-      if (data) {
-        const parsed = JSON.parse(data);
-        setCustomers(parsed.customers || []);
-        setBookings(parsed.bookings || []);
-        setVehicles(parsed.vehicles || []);
-        setIncomingRequests(parsed.incomingRequests || []);
-        setSheetCsvUrlState(parsed.sheetCsvUrl || '');
-      }
-    } catch (e: any) {
-      console.error("Failed to load local data", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Sync to local storage whenever CRM state changes
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const triggerSave = (newData: any) => {
     try {
-      localStorage.setItem('crown_crm_data', JSON.stringify(newData));
+      localStorage.setItem('crown_crm_data', JSON.stringify({
+        customers,
+        bookings,
+        vehicles,
+        incomingRequests,
+        sheetCsvUrl
+      }));
     } catch (e) {
-      console.error("Failed to sync to local storage", e);
+      console.error("Failed to sync CRM data to local storage", e);
     }
-  };
+  }, [customers, bookings, vehicles, incomingRequests, sheetCsvUrl]);
   
   const setSheetCsvUrl = (url: string) => {
     setSheetCsvUrlState(url);
-    triggerSave({ customers, bookings, vehicles, incomingRequests, sheetCsvUrl: url });
   };
 
   const login = async () => {};
@@ -136,7 +152,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const hasData = Object.values(row).some(v => typeof v === 'string' && v.trim() !== '');
             
             if (hasData) {
-              const id = `req_${btoa(timestamp + fullName + phoneNumber).replace(/[^a-zA-Z0-9]/g, '').substring(0, 15)}`;
+              const id = generateDeterministicRequestId(timestamp + fullName + (phoneNumber || ''));
               
               newRequests.push({
                 id,
@@ -157,19 +173,18 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
           
           setIncomingRequests(prev => {
-             const existingIds = new Set(prev.map(r => r.id));
-             const toAdd = newRequests.filter(r => !existingIds.has(r.id));
-             
-             if (toAdd.length === 0) {
-               toast.success("No new requests found. You're all caught up!");
-               return prev;
-             }
-             
-             const updated = [...prev, ...toAdd];
-             triggerSave({ customers, bookings, vehicles, incomingRequests: updated, sheetCsvUrl });
-             toast.success(`Successfully imported ${toAdd.length} new request(s)!`);
-             return updated;
+            const existingIds = new Set(prev.map(r => r.id));
+            const toAdd = newRequests.filter(r => !existingIds.has(r.id));
+            return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
           });
+
+          const currentIds = new Set(incomingRequests.map(r => r.id));
+          const countAdded = newRequests.filter(r => !currentIds.has(r.id)).length;
+          if (countAdded > 0) {
+            toast.success(`Successfully imported ${countAdded} new request(s)!`);
+          } else {
+            toast.success("No new requests found. You're all caught up!");
+          }
         },
         error: (error) => {
           console.error("CSV Parse Error:", error);
@@ -189,28 +204,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date().toISOString();
     const customer = { ...data, id: newId, createdAt: now } as Customer;
     
-    setCustomers(prev => {
-      const updated = [...prev, customer];
-      triggerSave({ customers: updated, bookings, vehicles, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setCustomers(prev => [...prev, customer]);
     return customer;
   };
 
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    setCustomers(prev => {
-      const updated = prev.map(c => c.id === id ? { ...c, ...updates } : c);
-      triggerSave({ customers: updated, bookings, vehicles, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
   };
 
   const deleteCustomer = async (id: string) => {
-    setCustomers(prev => {
-      const updated = prev.filter(c => c.id !== id);
-      triggerSave({ customers: updated, bookings, vehicles, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setCustomers(prev => prev.filter(c => c.id !== id));
   };
 
   const addBooking = async (data: Omit<Booking, 'id' | 'createdAt'>) => {
@@ -218,28 +221,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date().toISOString();
     const booking = { ...data, id: newId, createdAt: now } as Booking;
     
-    setBookings(prev => {
-      const updated = [booking, ...prev];
-      triggerSave({ customers, bookings: updated, vehicles, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setBookings(prev => [booking, ...prev]);
     return booking;
   };
 
   const updateBooking = async (id: string, updates: Partial<Booking>) => {
-    setBookings(prev => {
-      const updated = prev.map(b => b.id === id ? { ...b, ...updates } : b);
-      triggerSave({ customers, bookings: updated, vehicles, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setBookings(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
   };
 
   const deleteBooking = async (id: string) => {
-    setBookings(prev => {
-      const updated = prev.filter(b => b.id !== id);
-      triggerSave({ customers, bookings: updated, vehicles, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setBookings(prev => prev.filter(b => b.id !== id));
   };
 
   const addVehicle = async (data: Omit<Vehicle, 'id' | 'createdAt'>) => {
@@ -247,36 +238,20 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date().toISOString();
     const vehicle = { ...data, id: newId, createdAt: now } as Vehicle;
     
-    setVehicles(prev => {
-      const updated = [...prev, vehicle];
-      triggerSave({ customers, bookings, vehicles: updated, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setVehicles(prev => [...prev, vehicle]);
     return vehicle;
   };
 
   const updateVehicle = async (id: string, updates: Partial<Vehicle>) => {
-    setVehicles(prev => {
-      const updated = prev.map(v => v.id === id ? { ...v, ...updates } : v);
-      triggerSave({ customers, bookings, vehicles: updated, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setVehicles(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
   };
 
   const deleteVehicle = async (id: string) => {
-    setVehicles(prev => {
-      const updated = prev.filter(v => v.id !== id);
-      triggerSave({ customers, bookings, vehicles: updated, incomingRequests, sheetCsvUrl });
-      return updated;
-    });
+    setVehicles(prev => prev.filter(v => v.id !== id));
   };
 
   const updateIncomingRequest = async (id: string, status: string) => {
-    setIncomingRequests(prev => {
-      const updated = prev.map(r => r.id === id ? { ...r, status: status as any } : r);
-      triggerSave({ customers, bookings, vehicles, incomingRequests: updated, sheetCsvUrl });
-      return updated;
-    });
+    setIncomingRequests(prev => prev.map(r => r.id === id ? { ...r, status: status as any } : r));
   };
 
   const refreshRequests = async () => {

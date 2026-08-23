@@ -3,9 +3,19 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const activeConfig = {
+  ...firebaseConfig,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || 'gen-lang-client-0878275046',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || 'ai-studio-crowndetailingcr-89101bd2-4958-4e20-a670-7ef709b37a0b',
+};
 
-export const FIRESTORE_DATABASE_ID = firebaseConfig.firestoreDatabaseId || 'ai-studio-crowndetailingcr-89101bd2-4958-4e20-a670-7ef709b37a0b';
+const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
+
+export const FIRESTORE_DATABASE_ID = activeConfig.firestoreDatabaseId;
+export const FIRESTORE_PROJECT_ID = activeConfig.projectId;
 export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
 export const auth = getAuth(app);
 

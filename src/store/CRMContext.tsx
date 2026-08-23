@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Customer, Booking, Vehicle, Service, Setting, IncomingRequest } from '../types';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { Customer, Booking, Vehicle, IncomingRequest } from '../types';
 import Papa from 'papaparse';
 import toast from 'react-hot-toast';
 import { 
@@ -9,14 +9,14 @@ import {
   setDoc, 
   updateDoc, 
   deleteDoc, 
-  getDocs,
-  serverTimestamp 
+  getDocs 
 } from 'firebase/firestore';
 import { 
   db, 
   handleFirestoreError, 
   OperationType, 
   FIRESTORE_DATABASE_ID,
+  FIRESTORE_PROJECT_ID,
   testFirestoreConnection 
 } from '../lib/firebase';
 
@@ -53,6 +53,7 @@ interface CRMContextType {
   isSyncing: boolean;
   firestoreConnected: boolean;
   firestoreDatabaseId: string;
+  firestoreProjectId: string;
 }
 
 const CRMContext = createContext<CRMContextType | null>(null);
@@ -94,10 +95,74 @@ const getStoredData = (): StoredCRMData => {
   return {};
 };
 
+function parseBookingOrLead(docId: string, data: any): { booking?: Booking; lead?: IncomingRequest } {
+  const dateStr = data.date || data.preferredDate || data.bookingDate || (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
+  const timeStr = data.time || data.preferredTime || data.bookingTime || '';
+  const fullName = data.fullName || data.name || data.customerName || data.client || '';
+  const phone = data.phoneNumber || data.phone || data.mobile || data.contact || '';
+  const email = data.email || data.mail || '';
+  const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
+  const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
+  const address = data.address || data.location || '';
+  const city = data.city || '';
+  const notes = data.notes || data.message || '';
+  const status = data.status || 'Pending';
+  const price = typeof data.price === 'number' ? data.price : parseFloat(data.price || 0) || 0;
+  const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
+  const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
+
+  const result: { booking?: Booking; lead?: IncomingRequest } = {};
+
+  // Confirmed booking condition
+  if (data.customerId || ['Confirmed', 'Reminder Sent', 'Technician Assigned', 'On The Way', 'In Progress', 'Completed', 'Paid', 'Cancelled', 'Rescheduled'].includes(status)) {
+    result.booking = {
+      id: docId,
+      customerId: data.customerId || docId,
+      vehicleId: data.vehicleId || '',
+      vehicle,
+      date: dateStr,
+      time: timeStr,
+      duration: data.duration || 120,
+      service,
+      price,
+      paymentStatus,
+      status: status as any,
+      notes,
+      createdAt,
+      calendarEventId: data.calendarEventId || ''
+    };
+  }
+
+  // Incoming lead condition
+  if (status === 'Pending' || status === 'pending' || status === 'New Lead' || status === 'lead' || !data.customerId || status === 'New') {
+    result.lead = {
+      id: docId,
+      timestamp: createdAt,
+      fullName: fullName || 'New Customer',
+      phoneNumber: phone,
+      email,
+      address,
+      city,
+      vehicleMakeModel: vehicle,
+      serviceRequested: service,
+      preferredDate: dateStr,
+      preferredTime: timeStr,
+      notes,
+      status: status === 'Approved' ? 'Approved' : status === 'Dismissed' ? 'Dismissed' : 'Pending'
+    };
+  }
+
+  return result;
+}
+
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>({ id: 'admin', email: 'admin@crown', name: 'Admin' });
-  const [loading, setLoading] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [user] = useState<User | null>({ id: 'admin', email: 'admin@crown', name: 'Admin' });
+  const [loading] = useState(false);
+  const [authError] = useState<string | null>(null);
   
   const [customers, setCustomers] = useState<Customer[]>(() => getStoredData().customers || []);
   const [bookings, setBookings] = useState<Booking[]>(() => getStoredData().bookings || []);
@@ -114,9 +179,45 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  // 2. Real-time Firestore Listeners
+  // 2. Real-time Firestore Listeners (bookings, public_bookings, incoming_requests, customers)
   useEffect(() => {
-    // Listener for 'bookings' collection (including incoming leads)
+    // A. Listener for 'public_bookings' collection (written by online booking forms)
+    const publicBookingsCol = collection(db, 'public_bookings');
+    const unsubscribePublicBookings = onSnapshot(publicBookingsCol, (snapshot) => {
+      setFirestoreConnected(true);
+      if (!snapshot.empty) {
+        const newBookings: Booking[] = [];
+        const newLeads: IncomingRequest[] = [];
+
+        snapshot.forEach((docSnap) => {
+          const { booking, lead } = parseBookingOrLead(docSnap.id, docSnap.data());
+          if (booking) newBookings.push(booking);
+          if (lead) newLeads.push(lead);
+        });
+
+        if (newBookings.length > 0) {
+          setBookings(prev => {
+            const map = new Map<string, Booking>();
+            prev.forEach(b => map.set(b.id, b));
+            newBookings.forEach(b => map.set(b.id, b));
+            return Array.from(map.values());
+          });
+        }
+
+        if (newLeads.length > 0) {
+          setIncomingRequests(prev => {
+            const map = new Map<string, IncomingRequest>();
+            prev.forEach(r => map.set(r.id, r));
+            newLeads.forEach(r => map.set(r.id, r));
+            return Array.from(map.values());
+          });
+        }
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'public_bookings');
+    });
+
+    // B. Listener for 'bookings' collection
     const bookingsCol = collection(db, 'bookings');
     const unsubscribeBookings = onSnapshot(bookingsCol, (snapshot) => {
       setFirestoreConnected(true);
@@ -125,69 +226,11 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const firestoreLeads: IncomingRequest[] = [];
 
         snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          const docId = docSnap.id;
-
-          const dateStr = data.date || data.preferredDate || data.bookingDate || (() => {
-            const d = new Date();
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          })();
-
-          const timeStr = data.time || data.preferredTime || data.bookingTime || '';
-          const fullName = data.fullName || data.name || data.customerName || data.client || '';
-          const phone = data.phoneNumber || data.phone || data.mobile || data.contact || '';
-          const email = data.email || data.mail || '';
-          const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
-          const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
-          const address = data.address || data.location || '';
-          const city = data.city || '';
-          const notes = data.notes || data.message || '';
-          const status = data.status || 'New';
-          const price = typeof data.price === 'number' ? data.price : parseFloat(data.price || 0) || 0;
-          const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
-          const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || new Date().toISOString());
-
-          // If this record has a customerId or is marked as a confirmed/active booking, map to Booking
-          if (data.customerId || ['Confirmed', 'Reminder Sent', 'Technician Assigned', 'On The Way', 'In Progress', 'Completed', 'Paid', 'Cancelled', 'Rescheduled'].includes(status)) {
-            firestoreBookings.push({
-              id: docId,
-              customerId: data.customerId || docId,
-              vehicleId: data.vehicleId || '',
-              vehicle,
-              date: dateStr,
-              time: timeStr,
-              duration: data.duration || 120,
-              service,
-              price,
-              paymentStatus,
-              status: status as any,
-              notes,
-              createdAt,
-              calendarEventId: data.calendarEventId || ''
-            });
-          }
-
-          // If this record is a lead / pending request, map to IncomingRequest queue
-          if (status === 'Pending' || status === 'pending' || status === 'New Lead' || status === 'lead' || !data.customerId) {
-            firestoreLeads.push({
-              id: docId,
-              timestamp: createdAt,
-              fullName: fullName || 'New Customer',
-              phoneNumber: phone,
-              email,
-              address,
-              city,
-              vehicleMakeModel: vehicle,
-              serviceRequested: service,
-              preferredDate: dateStr,
-              preferredTime: timeStr,
-              notes,
-              status: status === 'Approved' ? 'Approved' : status === 'Dismissed' ? 'Dismissed' : 'Pending'
-            });
-          }
+          const { booking, lead } = parseBookingOrLead(docSnap.id, docSnap.data());
+          if (booking) firestoreBookings.push(booking);
+          if (lead) firestoreLeads.push(lead);
         });
 
-        // Update bookings state with Firestore data if available
         if (firestoreBookings.length > 0) {
           setBookings(prev => {
             const combinedMap = new Map<string, Booking>();
@@ -197,7 +240,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
         }
 
-        // Update incoming leads state with Firestore data
         if (firestoreLeads.length > 0) {
           setIncomingRequests(prev => {
             const combinedMap = new Map<string, IncomingRequest>();
@@ -211,7 +253,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       handleFirestoreError(error, OperationType.LIST, 'bookings');
     });
 
-    // Listener for 'customers' collection
+    // C. Listener for 'customers' collection
     const customersCol = collection(db, 'customers');
     const unsubscribeCustomers = onSnapshot(customersCol, (snapshot) => {
       if (!snapshot.empty) {
@@ -243,7 +285,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       handleFirestoreError(error, OperationType.LIST, 'customers');
     });
 
-    // Listener for 'incoming_requests' collection
+    // D. Listener for 'incoming_requests' collection
     const incomingCol = collection(db, 'incoming_requests');
     const unsubscribeIncoming = onSnapshot(incomingCol, (snapshot) => {
       if (!snapshot.empty) {
@@ -279,6 +321,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return () => {
+      unsubscribePublicBookings();
       unsubscribeBookings();
       unsubscribeCustomers();
       unsubscribeIncoming();
@@ -310,13 +353,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const syncFromFirestore = async () => {
     setIsSyncing(true);
     try {
-      const snap = await getDocs(collection(db, 'bookings'));
-      let count = snap.size;
+      const snapPublic = await getDocs(collection(db, 'public_bookings'));
+      const snapBookings = await getDocs(collection(db, 'bookings'));
+      const count = snapPublic.size + snapBookings.size;
       setFirestoreConnected(true);
       toast.success(`Synced ${count} lead(s)/booking(s) from Firestore!`);
     } catch (error) {
       console.error("Firestore sync error:", error);
-      handleFirestoreError(error, OperationType.LIST, 'bookings');
+      handleFirestoreError(error, OperationType.LIST, 'public_bookings');
       toast.error("Failed to sync with Firestore. Please check your connection.");
     } finally {
       setIsSyncing(false);
@@ -434,10 +478,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date().toISOString();
     const customer = { ...data, id: newId, createdAt: now } as Customer;
     
-    // Save to local state
     setCustomers(prev => [...prev, customer]);
 
-    // Save to Firestore
     try {
       await setDoc(doc(db, 'customers', newId), {
         ...customer,
@@ -480,7 +522,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     setBookings(prev => [booking, ...prev]);
 
-    // Save to Firestore 'bookings' collection
     try {
       await setDoc(doc(db, 'bookings', newId), {
         ...booking,
@@ -500,6 +541,11 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await updateDoc(doc(db, 'bookings', id), {
         ...updates,
         updatedAt: new Date().toISOString()
+      }).catch(async () => {
+        await updateDoc(doc(db, 'public_bookings', id), {
+          ...updates,
+          updatedAt: new Date().toISOString()
+        });
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `bookings/${id}`);
@@ -510,7 +556,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBookings(prev => prev.filter(b => b.id !== id));
 
     try {
-      await deleteDoc(doc(db, 'bookings', id));
+      await deleteDoc(doc(db, 'bookings', id)).catch(async () => {
+        await deleteDoc(doc(db, 'public_bookings', id));
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `bookings/${id}`);
     }
@@ -562,14 +610,18 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIncomingRequests(prev => prev.map(r => r.id === id ? { ...r, status: status as any } : r));
 
     try {
-      // Update in 'bookings' or 'incoming_requests'
-      await updateDoc(doc(db, 'bookings', id), {
+      await updateDoc(doc(db, 'public_bookings', id), {
         status,
         updatedAt: new Date().toISOString()
       }).catch(async () => {
-        await updateDoc(doc(db, 'incoming_requests', id), {
+        await updateDoc(doc(db, 'bookings', id), {
           status,
           updatedAt: new Date().toISOString()
+        }).catch(async () => {
+          await updateDoc(doc(db, 'incoming_requests', id), {
+            status,
+            updatedAt: new Date().toISOString()
+          });
         });
       });
     } catch (error) {
@@ -611,7 +663,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       syncFromFirestore,
       isSyncing,
       firestoreConnected,
-      firestoreDatabaseId: FIRESTORE_DATABASE_ID
+      firestoreDatabaseId: FIRESTORE_DATABASE_ID,
+      firestoreProjectId: FIRESTORE_PROJECT_ID
     }}>
       {children}
     </CRMContext.Provider>

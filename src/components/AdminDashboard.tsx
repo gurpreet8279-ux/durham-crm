@@ -48,7 +48,11 @@ export default function AdminDashboard() {
             <span className="font-semibold text-slate-900">{firestoreDatabaseId}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500 font-sans font-medium">Leads & Bookings Collection:</span>
+            <span className="text-slate-500 font-sans font-medium">Public Web Leads Collection:</span>
+            <span className="font-semibold text-purple-600">/public_bookings</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 font-sans font-medium">CRM Bookings Collection:</span>
             <span className="font-semibold text-blue-600">/bookings</span>
           </div>
           <div className="flex items-center justify-between">

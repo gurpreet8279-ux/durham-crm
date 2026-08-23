@@ -95,70 +95,6 @@ const getStoredData = (): StoredCRMData => {
   return {};
 };
 
-function parseBookingOrLead(docId: string, data: any): { booking?: Booking; lead?: IncomingRequest } {
-  const dateStr = data.date || data.preferredDate || data.bookingDate || (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  })();
-
-  const timeStr = data.time || data.preferredTime || data.bookingTime || '';
-  const fullName = data.fullName || data.name || data.customerName || data.client || '';
-  const phone = data.phoneNumber || data.phone || data.mobile || data.contact || '';
-  const email = data.email || data.mail || '';
-  const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
-  const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
-  const address = data.address || data.location || '';
-  const city = data.city || '';
-  const notes = data.notes || data.message || '';
-  const status = data.status || 'Pending';
-  const price = typeof data.price === 'number' ? data.price : parseFloat(data.price || 0) || 0;
-  const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
-  const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
-
-  const result: { booking?: Booking; lead?: IncomingRequest } = {};
-
-  // Confirmed booking condition
-  if (data.customerId || ['Confirmed', 'Reminder Sent', 'Technician Assigned', 'On The Way', 'In Progress', 'Completed', 'Paid', 'Cancelled', 'Rescheduled'].includes(status)) {
-    result.booking = {
-      id: docId,
-      customerId: data.customerId || docId,
-      vehicleId: data.vehicleId || '',
-      vehicle,
-      date: dateStr,
-      time: timeStr,
-      duration: data.duration || 120,
-      service,
-      price,
-      paymentStatus,
-      status: status as any,
-      notes,
-      createdAt,
-      calendarEventId: data.calendarEventId || ''
-    };
-  }
-
-  // Incoming lead condition
-  if (status === 'Pending' || status === 'pending' || status === 'New Lead' || status === 'lead' || !data.customerId || status === 'New') {
-    result.lead = {
-      id: docId,
-      timestamp: createdAt,
-      fullName: fullName || 'New Customer',
-      phoneNumber: phone,
-      email,
-      address,
-      city,
-      vehicleMakeModel: vehicle,
-      serviceRequested: service,
-      preferredDate: dateStr,
-      preferredTime: timeStr,
-      notes,
-      status: status === 'Approved' ? 'Approved' : status === 'Dismissed' ? 'Dismissed' : 'Pending'
-    };
-  }
-
-  return result;
-}
-
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user] = useState<User | null>({ id: 'admin', email: 'admin@crown', name: 'Admin' });
   const [loading] = useState(false);
@@ -179,56 +115,106 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  // 2. Real-time Firestore Listeners (bookings, public_bookings, incoming_requests, customers)
+  // 2. Real-time Firestore Listeners
   useEffect(() => {
-    // A. Listener for 'public_bookings' collection (written by online booking forms)
+    // A. Listener for 'public_bookings' -> Strictly New Online Leads
     const publicBookingsCol = collection(db, 'public_bookings');
     const unsubscribePublicBookings = onSnapshot(publicBookingsCol, (snapshot) => {
       setFirestoreConnected(true);
       if (!snapshot.empty) {
-        const newBookings: Booking[] = [];
-        const newLeads: IncomingRequest[] = [];
+        const leads: IncomingRequest[] = [];
 
         snapshot.forEach((docSnap) => {
-          const { booking, lead } = parseBookingOrLead(docSnap.id, docSnap.data());
-          if (booking) newBookings.push(booking);
-          if (lead) newLeads.push(lead);
+          const data = docSnap.data();
+          const docId = docSnap.id;
+          const status = data.status || 'Pending';
+
+          const dateStr = data.date || data.preferredDate || data.bookingDate || (() => {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          })();
+
+          const timeStr = data.time || data.preferredTime || data.bookingTime || '';
+          const fullName = data.fullName || data.name || data.customerName || data.client || 'New Lead';
+          const phone = data.phoneNumber || data.phone || data.mobile || data.contact || '';
+          const email = data.email || data.mail || '';
+          const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
+          const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
+          const address = data.address || data.location || '';
+          const city = data.city || '';
+          const notes = data.notes || data.message || '';
+          const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
+
+          leads.push({
+            id: docId,
+            timestamp: createdAt,
+            fullName,
+            phoneNumber: phone,
+            email,
+            address,
+            city,
+            vehicleMakeModel: vehicle,
+            serviceRequested: service,
+            preferredDate: dateStr,
+            preferredTime: timeStr,
+            notes,
+            status: status === 'Approved' ? 'Approved' : status === 'Dismissed' ? 'Dismissed' : 'Pending'
+          });
         });
 
-        if (newBookings.length > 0) {
-          setBookings(prev => {
-            const map = new Map<string, Booking>();
-            prev.forEach(b => map.set(b.id, b));
-            newBookings.forEach(b => map.set(b.id, b));
-            return Array.from(map.values());
-          });
-        }
-
-        if (newLeads.length > 0) {
-          setIncomingRequests(prev => {
-            const map = new Map<string, IncomingRequest>();
-            prev.forEach(r => map.set(r.id, r));
-            newLeads.forEach(r => map.set(r.id, r));
-            return Array.from(map.values());
-          });
-        }
+        setIncomingRequests(prev => {
+          const map = new Map<string, IncomingRequest>();
+          // Keep existing unless replaced by Firestore
+          prev.forEach(r => map.set(r.id, r));
+          leads.forEach(r => map.set(r.id, r));
+          return Array.from(map.values());
+        });
       }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'public_bookings');
     });
 
-    // B. Listener for 'bookings' collection
+    // B. Listener for 'bookings' -> CRM Schedule & Confirmed Bookings
     const bookingsCol = collection(db, 'bookings');
     const unsubscribeBookings = onSnapshot(bookingsCol, (snapshot) => {
       setFirestoreConnected(true);
       if (!snapshot.empty) {
         const firestoreBookings: Booking[] = [];
-        const firestoreLeads: IncomingRequest[] = [];
 
         snapshot.forEach((docSnap) => {
-          const { booking, lead } = parseBookingOrLead(docSnap.id, docSnap.data());
-          if (booking) firestoreBookings.push(booking);
-          if (lead) firestoreLeads.push(lead);
+          const data = docSnap.data();
+          const docId = docSnap.id;
+
+          const dateStr = data.date || data.preferredDate || data.bookingDate || (() => {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          })();
+
+          const timeStr = data.time || data.preferredTime || data.bookingTime || '';
+          const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
+          const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
+          const notes = data.notes || data.message || '';
+          const status = data.status || 'New';
+          const price = typeof data.price === 'number' ? data.price : parseFloat(data.price || 0) || 0;
+          const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
+          const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
+
+          firestoreBookings.push({
+            id: docId,
+            customerId: data.customerId || docId,
+            vehicleId: data.vehicleId || '',
+            vehicle,
+            date: dateStr,
+            time: timeStr,
+            duration: data.duration || 120,
+            service,
+            price,
+            paymentStatus,
+            status: status as any,
+            notes,
+            createdAt,
+            calendarEventId: data.calendarEventId || ''
+          });
         });
 
         if (firestoreBookings.length > 0) {
@@ -236,15 +222,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const combinedMap = new Map<string, Booking>();
             prev.forEach(b => combinedMap.set(b.id, b));
             firestoreBookings.forEach(b => combinedMap.set(b.id, b));
-            return Array.from(combinedMap.values());
-          });
-        }
-
-        if (firestoreLeads.length > 0) {
-          setIncomingRequests(prev => {
-            const combinedMap = new Map<string, IncomingRequest>();
-            prev.forEach(r => combinedMap.set(r.id, r));
-            firestoreLeads.forEach(r => combinedMap.set(r.id, r));
             return Array.from(combinedMap.values());
           });
         }
@@ -285,46 +262,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       handleFirestoreError(error, OperationType.LIST, 'customers');
     });
 
-    // D. Listener for 'incoming_requests' collection
-    const incomingCol = collection(db, 'incoming_requests');
-    const unsubscribeIncoming = onSnapshot(incomingCol, (snapshot) => {
-      if (!snapshot.empty) {
-        const list: IncomingRequest[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          list.push({
-            id: docSnap.id,
-            timestamp: data.timestamp || data.createdAt || new Date().toISOString(),
-            fullName: data.fullName || data.name || '',
-            phoneNumber: data.phoneNumber || data.phone || '',
-            email: data.email || '',
-            address: data.address || '',
-            city: data.city || '',
-            vehicleMakeModel: data.vehicleMakeModel || data.vehicle || '',
-            serviceRequested: data.serviceRequested || data.service || '',
-            preferredDate: data.preferredDate || data.date || '',
-            preferredTime: data.preferredTime || data.time || '',
-            notes: data.notes || '',
-            status: data.status || 'Pending'
-          });
-        });
-
-        setIncomingRequests(prev => {
-          const map = new Map<string, IncomingRequest>();
-          prev.forEach(r => map.set(r.id, r));
-          list.forEach(r => map.set(r.id, r));
-          return Array.from(map.values());
-        });
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'incoming_requests');
-    });
-
     return () => {
       unsubscribePublicBookings();
       unsubscribeBookings();
       unsubscribeCustomers();
-      unsubscribeIncoming();
     };
   }, []);
 
@@ -355,9 +296,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const snapPublic = await getDocs(collection(db, 'public_bookings'));
       const snapBookings = await getDocs(collection(db, 'bookings'));
-      const count = snapPublic.size + snapBookings.size;
       setFirestoreConnected(true);
-      toast.success(`Synced ${count} lead(s)/booking(s) from Firestore!`);
+      
+      const newOnlineLeads = snapPublic.docs.filter(d => {
+        const s = d.data().status;
+        return s !== 'Approved' && s !== 'Dismissed';
+      }).length;
+
+      toast.success(`Synced! Found ${newOnlineLeads} pending online lead(s) and ${snapBookings.size} CRM booking(s).`);
     } catch (error) {
       console.error("Firestore sync error:", error);
       handleFirestoreError(error, OperationType.LIST, 'public_bookings');
@@ -438,10 +384,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
           });
 
-          // Save new imported requests to Firestore bookings collection as leads
+          // Save new imported requests to Firestore public_bookings collection
           for (const req of newRequests) {
             try {
-              await setDoc(doc(db, 'bookings', req.id), {
+              await setDoc(doc(db, 'public_bookings', req.id), {
                 ...req,
                 status: 'Pending',
                 isLead: true,
@@ -617,11 +563,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await updateDoc(doc(db, 'bookings', id), {
           status,
           updatedAt: new Date().toISOString()
-        }).catch(async () => {
-          await updateDoc(doc(db, 'incoming_requests', id), {
-            status,
-            updatedAt: new Date().toISOString()
-          });
         });
       });
     } catch (error) {

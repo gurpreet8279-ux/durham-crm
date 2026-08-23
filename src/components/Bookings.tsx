@@ -11,10 +11,11 @@ const STATUS_OPTIONS: BookingStatus[] = [
 ];
 
 export default function Bookings() {
-  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer, updateCustomer } = useCRM();
+  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer, updateCustomer, purgeAllBookings } = useCRM();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
   
   const [isNewCustomer, setIsNewCustomer] = useState(false);
   const { confirm } = useDialog();
@@ -465,12 +466,29 @@ export default function Bookings() {
             className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm"
           />
         </div>
-        <button 
-          onClick={() => setIsAdding(true)}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 text-sm transition-colors"
-        >
-          <Plus size={18} /> New Booking
-        </button>
+        <div className="flex items-center gap-2">
+          {bookings.length > 0 && (
+            <button 
+              onClick={async () => {
+                if (await confirm('Purge All Bookings from Database', `Are you sure you want to permanently delete all ${bookings.length} previous bookings from your database? This will reset your calendar so only fresh bookings show up.`)) {
+                  setIsPurging(true);
+                  await purgeAllBookings();
+                  setIsPurging(false);
+                }
+              }}
+              disabled={isPurging}
+              className="px-3 py-2.5 text-xs font-semibold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Trash2 size={15} /> {isPurging ? 'Purging...' : `Clear All (${bookings.length})`}
+            </button>
+          )}
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 text-sm transition-colors"
+          >
+            <Plus size={18} /> New Booking
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

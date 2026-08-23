@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer, Firestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const activeConfig = {
@@ -16,7 +16,19 @@ const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
 
 export const FIRESTORE_DATABASE_ID = activeConfig.firestoreDatabaseId;
 export const FIRESTORE_PROJECT_ID = activeConfig.projectId;
-export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
+
+// Named database instance
+export const db: Firestore = getFirestore(app, FIRESTORE_DATABASE_ID);
+
+// Default database instance (fallback in case external forms write to default db)
+let fallbackDbInstance: Firestore | null = null;
+try {
+  fallbackDbInstance = getFirestore(app);
+} catch {
+  fallbackDbInstance = db;
+}
+export const defaultDb: Firestore = fallbackDbInstance || db;
+
 export const auth = getAuth(app);
 
 export enum OperationType {

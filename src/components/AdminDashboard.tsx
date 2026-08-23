@@ -1,24 +1,57 @@
-import { MessageSquare, FileSpreadsheet, DownloadCloud, CheckCircle2, Database, RefreshCw, Radio } from 'lucide-react';
+import { MessageSquare, FileSpreadsheet, DownloadCloud, CheckCircle2, Database, RefreshCw, Radio, Trash2, AlertTriangle } from 'lucide-react';
 import { useCRM } from '../store/useCRM';
 import { useState } from 'react';
+import { useDialog } from './DialogProvider';
 
 export default function AdminDashboard() {
   const { 
+    bookings,
+    customers,
+    incomingRequests,
     sheetCsvUrl, 
     setSheetCsvUrl, 
     syncFromGoogleForm, 
     syncFromFirestore, 
+    purgeAllBookings,
+    purgeAllCustomers,
+    purgeAllIncomingLeads,
     isSyncing, 
     firestoreConnected, 
     firestoreDatabaseId 
   } = useCRM();
   const [localUrl, setLocalUrl] = useState(sheetCsvUrl);
   const [saved, setSaved] = useState(false);
+  const [purging, setPurging] = useState<string | null>(null);
+  const { confirm } = useDialog();
 
   const handleSave = () => {
     setSheetCsvUrl(localUrl);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handlePurgeBookings = async () => {
+    if (await confirm('Purge All Bookings', `Are you sure you want to permanently delete all ${bookings.length} previous booking records from Cloud Firestore? Only fresh bookings will appear afterwards.`)) {
+      setPurging('bookings');
+      await purgeAllBookings();
+      setPurging(null);
+    }
+  };
+
+  const handlePurgeCustomers = async () => {
+    if (await confirm('Purge All Customers', `Are you sure you want to permanently delete all ${customers.length} customer profiles from Cloud Firestore?`)) {
+      setPurging('customers');
+      await purgeAllCustomers();
+      setPurging(null);
+    }
+  };
+
+  const handlePurgeLeads = async () => {
+    if (await confirm('Purge All Incoming Leads', 'Are you sure you want to clear all leads in public_bookings?')) {
+      setPurging('leads');
+      await purgeAllIncomingLeads();
+      setPurging(null);
+    }
   };
 
   return (
@@ -28,7 +61,7 @@ export default function AdminDashboard() {
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <div className="flex items-start justify-between">
           <h3 className="font-bold text-slate-900 mb-2 flex items-center gap-2">
-            <Database className="text-amber-500" size={20} /> Cloud Firestore Real-Time Database
+            <Database className="text-amber-500" size={20} /> Cloud Firestore Database
           </h3>
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
             firestoreConnected ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600'
@@ -42,28 +75,28 @@ export default function AdminDashboard() {
           Your CRM is connected to Cloud Firestore. All bookings, incoming leads, and customer records automatically sync across all your browsers and devices in real time.
         </p>
 
-        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4 text-xs font-mono text-slate-700 space-y-1">
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4 text-xs font-mono text-slate-700 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-slate-500 font-sans font-medium">Database ID:</span>
             <span className="font-semibold text-slate-900">{firestoreDatabaseId}</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-slate-500 font-sans font-medium">Public Web Leads Collection:</span>
-            <span className="font-semibold text-purple-600">/public_bookings</span>
+          <div className="flex items-center justify-between border-t border-slate-200 pt-1.5">
+            <span className="text-slate-500 font-sans font-medium">Online Web Leads (/public_bookings):</span>
+            <span className="font-semibold text-purple-600">{incomingRequests.length} Pending</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500 font-sans font-medium">CRM Bookings Collection:</span>
-            <span className="font-semibold text-blue-600">/bookings</span>
+            <span className="text-slate-500 font-sans font-medium">CRM Scheduled Bookings (/bookings):</span>
+            <span className="font-semibold text-blue-600">{bookings.length} Records</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500 font-sans font-medium">Customers Collection:</span>
-            <span className="font-semibold text-emerald-600">/customers</span>
+            <span className="text-slate-500 font-sans font-medium">Customer Profiles (/customers):</span>
+            <span className="font-semibold text-emerald-600">{customers.length} Customers</span>
           </div>
         </div>
 
         <div className="flex items-center justify-between pt-2">
           <p className="text-xs text-slate-500">
-            Real-time listener is actively listening for new leads in <code className="text-slate-700 font-semibold">bookings</code>.
+            Real-time synchronization is active.
           </p>
           <button
             onClick={syncFromFirestore}
@@ -71,8 +104,62 @@ export default function AdminDashboard() {
             className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-            {isSyncing ? 'Syncing...' : 'Fetch Leads Now'}
+            {isSyncing ? 'Syncing...' : 'Sync Database'}
           </button>
+        </div>
+      </div>
+
+      {/* Database Cleanup / Purge Tools */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <h3 className="font-bold text-slate-900 mb-2 flex items-center gap-2">
+          <AlertTriangle className="text-rose-500" size={20} /> Database Reset & Clean Up
+        </h3>
+        <p className="text-sm text-slate-600 mb-4 leading-relaxed">
+          If you have old test or imported records in Firestore that you want to wipe so your CRM starts fresh:
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-col justify-between">
+            <div>
+              <p className="font-bold text-xs text-slate-900">Bookings Collection</p>
+              <p className="text-xs text-slate-500 mt-0.5">{bookings.length} total records</p>
+            </div>
+            <button
+              onClick={handlePurgeBookings}
+              disabled={purging === 'bookings' || bookings.length === 0}
+              className="mt-3 w-full py-1.5 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40"
+            >
+              <Trash2 size={13} /> {purging === 'bookings' ? 'Purging...' : 'Purge All Bookings'}
+            </button>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-col justify-between">
+            <div>
+              <p className="font-bold text-xs text-slate-900">Customers Collection</p>
+              <p className="text-xs text-slate-500 mt-0.5">{customers.length} total records</p>
+            </div>
+            <button
+              onClick={handlePurgeCustomers}
+              disabled={purging === 'customers' || customers.length === 0}
+              className="mt-3 w-full py-1.5 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40"
+            >
+              <Trash2 size={13} /> {purging === 'customers' ? 'Purging...' : 'Purge All Customers'}
+            </button>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-col justify-between">
+            <div>
+              <p className="font-bold text-xs text-slate-900">Online Leads Inbox</p>
+              <p className="text-xs text-slate-500 mt-0.5">{incomingRequests.length} pending leads</p>
+            </div>
+            <button
+              onClick={handlePurgeLeads}
+              disabled={purging === 'leads' || incomingRequests.length === 0}
+              className="mt-3 w-full py-1.5 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40"
+            >
+              <Trash2 size={13} /> {purging === 'leads' ? 'Purging...' : 'Clear All Leads'}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Booking, BookingStatus, Customer } from '../types';
 import { useCRM } from '../store/useCRM';
-import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users, DownloadCloud, RefreshCw } from 'lucide-react';
+import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users, DownloadCloud, RefreshCw, Phone, Mail, MessageSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDialog } from './DialogProvider';
 import { triggerSmsForStatusChange } from '../lib/sms';
@@ -48,8 +48,31 @@ export default function Bookings() {
     notes: ''
   });
 
-  const getCustomerName = (id: string) => customers.find(c => c.id === id)?.fullName || 'Unknown';
-  const getCustomer = (id: string) => customers.find(c => c.id === id);
+  const getCustomer = (id: string, booking?: Booking) => {
+    let cust = customers.find(c => c.id === id);
+    if (cust) return cust;
+    if (booking) {
+      if ((booking as any).phoneNumber) {
+        cust = customers.find(c => c.phoneNumber === (booking as any).phoneNumber);
+        if (cust) return cust;
+      }
+      if ((booking as any).customerName || (booking as any).fullName) {
+        const name = (booking as any).customerName || (booking as any).fullName;
+        cust = customers.find(c => c.fullName.toLowerCase() === name.toLowerCase());
+        if (cust) return cust;
+      }
+    }
+    return undefined;
+  };
+
+  const getCustomerName = (id: string, booking?: Booking) => {
+    const cust = getCustomer(id, booking);
+    if (cust?.fullName) return cust.fullName;
+    if (booking && ((booking as any).customerName || (booking as any).fullName)) {
+      return (booking as any).customerName || (booking as any).fullName;
+    }
+    return 'Customer';
+  };
   
   const parseLocalDatetime = (dStr: string, tStr: string = '00:00') => {
     if (!dStr || typeof dStr !== 'string') return new Date();
@@ -86,8 +109,15 @@ export default function Bookings() {
 
   const filteredBookings = bookings
     .filter(b => {
-      const cName = getCustomerName(b.customerId).toLowerCase();
-      return cName.includes(searchTerm.toLowerCase()) || b.service.toLowerCase().includes(searchTerm.toLowerCase());
+      const cName = getCustomerName(b.customerId, b).toLowerCase();
+      const customer = getCustomer(b.customerId, b);
+      const phone = (customer?.phoneNumber || (b as any).phoneNumber || '').toLowerCase();
+      const vehicle = (b.vehicle || '').toLowerCase();
+      const service = (b.service || '').toLowerCase();
+      const notes = (b.notes || '').toLowerCase();
+      const query = searchTerm.toLowerCase();
+
+      return cName.includes(query) || phone.includes(query) || vehicle.includes(query) || service.includes(query) || notes.includes(query);
     })
     .sort((a, b) => {
       const dateA = parseLocalDatetime(a.date, a.time).getTime();
@@ -539,43 +569,81 @@ export default function Bookings() {
                 <tr>
                   <th className="px-6 py-4">Date & Time</th>
                   <th className="px-6 py-4">Customer</th>
-                  <th className="px-6 py-4">Service</th>
+                  <th className="px-6 py-4">Vehicle</th>
+                  <th className="px-6 py-4">Package & Price</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredBookings.map(booking => {
-                  const customer = getCustomer(booking.customerId);
+                  const customer = getCustomer(booking.customerId, booking);
+                  const custName = getCustomerName(booking.customerId, booking);
+                  const phone = customer?.phoneNumber || (booking as any).phoneNumber || '';
+                  const email = customer?.email || (booking as any).email || '';
+                  const city = customer?.city || (booking as any).city || '';
+
                   return (
                     <tr key={booking.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="px-6 py-4">
                         <div className="font-medium text-slate-900 flex items-center gap-2">
-                          <Calendar size={14} className="text-slate-400" />
+                          <Calendar size={14} className="text-blue-500" />
                           {parseLocalDate(booking.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                         </div>
                         {booking.time && (
-                          <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 ml-5">
-                            <Clock size={12} /> {booking.time} ({booking.duration}m)
+                          <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 ml-5 font-medium">
+                            <Clock size={12} /> {booking.time} ({booking.duration || 120}m)
                           </div>
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-medium text-slate-900">{customer?.fullName || 'Unknown'}</div>
-                        {booking.vehicle && (
-                          <div className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                            <Car size={12} /> {booking.vehicle}
+                        <div className="font-bold text-slate-900">{custName}</div>
+                        <div className="flex flex-col gap-0.5 mt-0.5">
+                          {phone && (
+                            <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className="text-xs text-slate-500 hover:text-blue-600 flex items-center gap-1">
+                              <Phone size={11} className="text-slate-400" /> {phone}
+                            </a>
+                          )}
+                          {email && (
+                            <a href={`mailto:${email}`} className="text-xs text-slate-500 hover:text-blue-600 flex items-center gap-1">
+                              <Mail size={11} className="text-slate-400" /> {email}
+                            </a>
+                          )}
+                          {city && (
+                            <span className="text-[11px] text-slate-400">
+                              {city}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {booking.vehicle ? (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-800 font-medium text-xs border border-slate-200">
+                            <Car size={13} className="text-slate-500 shrink-0" />
+                            <span className="truncate max-w-[160px]">{booking.vehicle}</span>
                           </div>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">Not specified</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        <div className="truncate max-w-[200px]">{booking.service}</div>
-                        {booking.price !== undefined && (Number(booking.price) || 0) > 0 && (
-                          <div className="text-xs font-bold mt-1 flex items-center gap-1.5">
-                            <DollarSign size={12} className="text-slate-400"/> 
-                            <span className={booking.paymentStatus === 'Paid' ? 'text-emerald-600' : 'text-slate-600'}>
-                              {(Number(booking.price) || 0).toFixed(2)} {booking.paymentStatus === 'Paid' ? '(Paid)' : ''}
-                            </span>
+                      <td className="px-6 py-4 text-slate-700">
+                        <div className="font-semibold text-slate-900 truncate max-w-[200px]">{booking.service || 'Detailing Service'}</div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs font-bold text-emerald-600 flex items-center">
+                            <DollarSign size={12} />
+                            {(Number(booking.price) || 0).toFixed(2)}
+                          </span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                            booking.paymentStatus === 'Paid' 
+                              ? 'bg-emerald-100 text-emerald-700' 
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {booking.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid'}
+                          </span>
+                        </div>
+                        {booking.notes && (
+                          <div className="text-[11px] text-slate-400 italic truncate max-w-[200px] mt-0.5" title={booking.notes}>
+                            "{booking.notes}"
                           </div>
                         )}
                       </td>
@@ -583,9 +651,18 @@ export default function Bookings() {
                         {getStatusBadge(booking.status)}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleEdit(booking)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Edit2 size={16} /></button>
-                          <button onClick={() => handleDelete(booking.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={16} /></button>
+                        <div className="flex items-center justify-end gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                          {phone && (
+                            <a 
+                              href={`sms:${phone.replace(/[^\d+]/g, '')}?body=Hi ${encodeURIComponent(custName)}, checking in regarding your detailing appointment.`}
+                              className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                              title="Send SMS"
+                            >
+                              <MessageSquare size={16} />
+                            </a>
+                          )}
+                          <button onClick={() => handleEdit(booking)} title="Edit" className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"><Edit2 size={16} /></button>
+                          <button onClick={() => handleDelete(booking.id)} title="Delete" className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={16} /></button>
                         </div>
                       </td>
                     </tr>

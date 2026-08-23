@@ -92,22 +92,137 @@ const getStoredData = (): StoredCRMData => {
   return {};
 };
 
-function parseLeadDoc(docId: string, data: any): IncomingRequest {
-  const dateStr = data.date || data.preferredDate || data.bookingDate || (() => {
+function getField(obj: any, keys: string[]): any {
+  if (!obj || typeof obj !== 'object') return '';
+  const objKeys = Object.keys(obj);
+  
+  // 1. Direct match
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') {
+      return obj[k];
+    }
+  }
+
+  // 2. Case-insensitive / normalized match
+  const normalizedObjKeys = objKeys.map(k => ({
+    original: k,
+    norm: k.toLowerCase().replace(/[^a-z0-9]/g, '')
+  }));
+
+  for (const k of keys) {
+    const normSearch = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const found = normalizedObjKeys.find(item => item.norm.includes(normSearch) || normSearch.includes(item.norm));
+    if (found && obj[found.original] !== undefined && obj[found.original] !== null && obj[found.original] !== '') {
+      return obj[found.original];
+    }
+  }
+
+  return '';
+}
+
+function parseCleanPrice(val: any, serviceName?: string): number {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (typeof val === 'string' && val.trim() !== '') {
+    const cleaned = val.replace(/[^0-9.]/g, '');
+    const num = parseFloat(cleaned);
+    if (!isNaN(num)) return num;
+  }
+  // If price is missing or 0, check package name for price
+  if (serviceName && typeof serviceName === 'string') {
+    const lower = serviceName.toLowerCase();
+    if (lower.includes('$')) {
+      const match = lower.match(/\$\s*([0-9]+(\.[0-9]{2})?)/);
+      if (match) {
+        const num = parseFloat(match[1]);
+        if (!isNaN(num)) return num;
+      }
+    }
+  }
+  return 0;
+}
+
+function parseCleanDate(rawDate: any): string {
+  if (!rawDate) {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  })();
+  }
+  if (typeof rawDate === 'object' && rawDate.toDate) {
+    const d = rawDate.toDate();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  if (typeof rawDate === 'string') {
+    const trimmed = rawDate.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      return trimmed.substring(0, 10);
+    }
+    // Handle MM/DD/YYYY or DD/MM/YYYY or M/D/YYYY
+    if (trimmed.includes('/')) {
+      const parts = trimmed.split(' ')[0].split('/');
+      if (parts.length === 3) {
+        let y = parseInt(parts[2], 10);
+        if (y < 100) y += 2000;
+        let m = parseInt(parts[0], 10);
+        let d = parseInt(parts[1], 10);
+        if (m > 12 && d <= 12) {
+          const temp = m;
+          m = d;
+          d = temp;
+        }
+        if (!isNaN(y) && !isNaN(m) && !isNaN(d) && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+          return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+      }
+    }
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+    }
+  }
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
-  const timeStr = data.time || data.preferredTime || data.bookingTime || '';
-  const fullName = data.fullName || data.name || data.customerName || data.client || 'Online Customer';
-  const phone = data.phoneNumber || data.phone || data.mobile || data.contact || '';
-  const email = data.email || data.mail || '';
-  const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
-  const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
-  const address = data.address || data.location || '';
-  const city = data.city || '';
-  const notes = data.notes || data.message || '';
-  const status = data.status || 'Pending';
+function parseCleanTime(rawTime: any): string {
+  if (!rawTime || typeof rawTime !== 'string') return '09:00';
+  const trimmed = rawTime.trim();
+  const ampmMatch = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (ampmMatch) {
+    let hr = parseInt(ampmMatch[1], 10);
+    const min = ampmMatch[2];
+    const ampm = ampmMatch[3]?.toUpperCase();
+    if (ampm === 'PM' && hr < 12) hr += 12;
+    if (ampm === 'AM' && hr === 12) hr = 0;
+    return `${String(hr).padStart(2, '0')}:${min}`;
+  }
+  const hrOnlyMatch = trimmed.match(/^(\d{1,2})\s*(AM|PM)$/i);
+  if (hrOnlyMatch) {
+    let hr = parseInt(hrOnlyMatch[1], 10);
+    const ampm = hrOnlyMatch[2].toUpperCase();
+    if (ampm === 'PM' && hr < 12) hr += 12;
+    if (ampm === 'AM' && hr === 12) hr = 0;
+    return `${String(hr).padStart(2, '0')}:00`;
+  }
+  if (/^\d{1,2}:\d{2}/.test(trimmed)) {
+    const [h, m] = trimmed.split(':');
+    return `${String(parseInt(h, 10)).padStart(2, '0')}:${m.substring(0, 2)}`;
+  }
+  return '09:00';
+}
+
+function parseLeadDoc(docId: string, data: any): IncomingRequest {
+  const fullName = getField(data, ['fullName', 'name', 'customerName', 'clientName', 'customer', 'client', 'contactName', 'full_name', 'customer_name']) || 'Online Customer';
+  const phone = String(getField(data, ['phoneNumber', 'phone', 'mobile', 'cell', 'contact', 'telephone', 'phone_number']) || '');
+  const email = String(getField(data, ['email', 'mail', 'emailAddress', 'email_address']) || '');
+  const vehicle = String(getField(data, ['vehicle', 'vehicleMakeModel', 'car', 'makeModel', 'make_model', 'vehicleType', 'model', 'vehicle_make_model']) || '');
+  const service = String(getField(data, ['service', 'package', 'serviceRequested', 'service_requested', 'serviceType', 'packageSelected', 'selectedPackage', 'plan', 'serviceName']) || 'Detailing Service');
+  const rawPrice = getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice', 'total', 'fee', 'rate', 'total_price']);
+  const price = parseCleanPrice(rawPrice, service);
+  const dateStr = parseCleanDate(getField(data, ['date', 'preferredDate', 'bookingDate', 'appointmentDate', 'selectedDate', 'serviceDate', 'preferred_date', 'booking_date']));
+  const timeStr = parseCleanTime(getField(data, ['time', 'preferredTime', 'bookingTime', 'appointmentTime', 'selectedTime', 'slot', 'preferred_time']));
+  const address = String(getField(data, ['address', 'location', 'street', 'streetAddress', 'street_address']) || '');
+  const city = String(getField(data, ['city', 'town', 'municipality', 'zip', 'postalCode']) || '');
+  const notes = String(getField(data, ['notes', 'message', 'comments', 'specialInstructions', 'additionalNotes']) || '');
+  const status = String(data.status || 'Pending');
   const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
 
   return {
@@ -120,6 +235,7 @@ function parseLeadDoc(docId: string, data: any): IncomingRequest {
     city,
     vehicleMakeModel: vehicle,
     serviceRequested: service,
+    price,
     preferredDate: dateStr,
     preferredTime: timeStr,
     notes,
@@ -184,13 +300,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         // Auto-synthesize customer profile if not already present
-        const custId = data.customerId || `cus_${docId}`;
-        const custName = data.fullName || data.name || data.customerName || data.client || 'Online Customer';
-        const custPhone = data.phoneNumber || data.phone || data.mobile || '';
-        const custEmail = data.email || data.mail || '';
-        const custAddress = data.address || data.location || '';
-        const custCity = data.city || '';
-        const custVehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
+        const custName = lead.fullName || 'Online Customer';
+        const custPhone = lead.phoneNumber || '';
+        const custEmail = lead.email || '';
+        const custAddress = lead.address || '';
+        const custCity = lead.city || '';
+        const custVehicle = lead.vehicleMakeModel || '';
+        const custId = data.customerId || (custPhone ? `cus_${custPhone.replace(/[^0-9]/g, '')}` : `cus_${docId}`);
 
         if (!autoCustomersMap.has(custId)) {
           const autoCust: Customer = {
@@ -201,36 +317,34 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             address: custAddress,
             city: custCity,
             vehicles: custVehicle ? [custVehicle] : [],
-            notes: data.notes || '',
+            notes: lead.notes || '',
             createdAt: lead.timestamp,
             lastServiceDate: lead.preferredDate || ''
           };
           autoCustomersMap.set(custId, autoCust);
           if (custPhone) autoCustomersMap.set(custPhone, autoCust);
+        } else {
+          // If customer exists, append vehicle if new
+          const existingCust = autoCustomersMap.get(custId)!;
+          if (custVehicle && existingCust.vehicles && !existingCust.vehicles.includes(custVehicle)) {
+            existingCust.vehicles.push(custVehicle);
+          }
         }
 
         // Add to calendar and bookings if not dismissed
         if (data.status !== 'Dismissed') {
-          let dateStr = data.date || data.preferredDate || data.bookingDate || data.appointmentDate;
-          if (!dateStr || typeof dateStr !== 'string') {
-            const d = new Date();
-            dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          } else if (dateStr.includes('T')) {
-            dateStr = dateStr.split('T')[0];
-          }
-
-          const timeStr = data.time || data.preferredTime || data.bookingTime || data.appointmentTime || '09:00';
+          const dateStr = lead.preferredDate;
+          const timeStr = lead.preferredTime || '09:00';
           const vehicle = custVehicle || 'Customer Vehicle';
-          const service = data.service || data.serviceRequested || data.package || data.serviceType || 'Detailing Service';
-          const notes = data.notes || data.message || '';
+          const service = lead.serviceRequested || 'Detailing Service';
+          const notes = lead.notes || '';
           const rawStatus = data.status || 'Pending';
           const status = (rawStatus === 'Approved' ? 'Confirmed' : rawStatus) as any;
-          const rawPrice = typeof data.price === 'number' ? data.price : parseFloat(data.price || data.totalPrice || data.amount || 0);
-          const price = isNaN(rawPrice) ? 0 : rawPrice;
+          const price = lead.price !== undefined ? lead.price : parseCleanPrice(getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice', 'total', 'fee']), service);
           const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
           const duration = isNaN(rawDuration) ? 120 : rawDuration;
           const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
-          const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
+          const createdAt = lead.timestamp;
 
           unifiedBookings.push({
             id: docId,
@@ -254,21 +368,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 2. Process manual bookings collection documents (if any exist)
       manualBookingsMap.forEach((data, docId) => {
         if (!publicBookingsMap.has(docId)) {
-          let dateStr = data.date || data.preferredDate || data.bookingDate;
-          if (!dateStr || typeof dateStr !== 'string') {
-            const d = new Date();
-            dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          } else if (dateStr.includes('T')) {
-            dateStr = dateStr.split('T')[0];
-          }
-
-          const timeStr = data.time || data.preferredTime || data.bookingTime || '09:00';
-          const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
-          const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
-          const notes = data.notes || data.message || '';
+          const dateStr = parseCleanDate(getField(data, ['date', 'preferredDate', 'bookingDate', 'appointmentDate']));
+          const timeStr = parseCleanTime(getField(data, ['time', 'preferredTime', 'bookingTime', 'appointmentTime']));
+          const vehicle = String(getField(data, ['vehicle', 'vehicleMakeModel', 'car', 'makeModel']) || 'Customer Vehicle');
+          const service = String(getField(data, ['service', 'package', 'serviceRequested', 'serviceType']) || 'Detailing Service');
+          const notes = String(getField(data, ['notes', 'message', 'comments']) || '');
           const status = data.status || 'New';
-          const rawPrice = typeof data.price === 'number' ? data.price : parseFloat(data.price || 0);
-          const price = isNaN(rawPrice) ? 0 : rawPrice;
+          const price = parseCleanPrice(getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice']), service);
           const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
           const duration = isNaN(rawDuration) ? 120 : rawDuration;
           const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
@@ -518,60 +624,62 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         header: true,
         skipEmptyLines: true,
         complete: async (results) => {
-          const newRequests: IncomingRequest[] = [];
+          const newRequests: any[] = [];
           
           results.data.forEach((row: any) => {
-            const keys = Object.keys(row);
-            const getVal = (keywords: string[]) => {
-               const key = keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw)));
-               return key ? row[key] : '';
-            };
-            
-            const timestamp = getVal(['timestamp', 'date', 'time']) || new Date().toISOString();
-            const fullName = getVal(['name', 'first', 'last', 'customer', 'client']) || getVal(['who']) || 'Unknown Customer';
-            const phoneNumber = getVal(['phone', 'mobile', 'cell', 'number', 'contact']);
-            const email = getVal(['email', 'mail']);
-            const address = getVal(['address', 'location', 'where']);
-            const city = getVal(['city', 'town', 'zip']);
-            const vehicleMakeModel = getVal(['vehicle', 'make', 'model', 'car', 'auto', 'truck']);
-            const serviceRequested = getVal(['service', 'package', 'detail', 'type', 'what']);
-            const preferredDate = getVal(['date', 'when']);
-            const preferredTime = getVal(['time']);
-            const notes = getVal(['notes', 'message', 'additional', 'anything']);
-            
             const hasData = Object.values(row).some(v => typeof v === 'string' && v.trim() !== '');
+            if (!hasData) return;
+
+            const timestamp = String(getField(row, ['timestamp', 'created', 'date_submitted']) || new Date().toISOString());
+            const fullName = String(getField(row, ['fullName', 'name', 'first_name', 'last_name', 'customer', 'client', 'who', 'customer_name']) || 'Google Form Customer');
+            const phoneNumber = String(getField(row, ['phone', 'mobile', 'cell', 'number', 'contact', 'telephone', 'phone_number']) || '');
+            const email = String(getField(row, ['email', 'mail', 'email_address']) || '');
+            const address = String(getField(row, ['address', 'location', 'where', 'street', 'street_address']) || '');
+            const city = String(getField(row, ['city', 'town', 'zip', 'postal']) || '');
+            const vehicleMakeModel = String(getField(row, ['vehicle', 'make', 'model', 'car', 'auto', 'truck', 'vehicle_make_model', 'vehicle_type']) || 'Customer Vehicle');
+            const serviceRequested = String(getField(row, ['service', 'package', 'detail', 'type', 'what', 'plan', 'service_requested', 'package_selected']) || 'Detailing Service');
+            const rawPrice = getField(row, ['price', 'cost', 'amount', 'fee', 'total', 'rate', 'package_price', 'total_price', '$']);
+            const price = parseCleanPrice(rawPrice, serviceRequested);
+            const preferredDate = parseCleanDate(getField(row, ['date', 'when', 'day', 'booking_date', 'preferred_date', 'service_date']));
+            const preferredTime = parseCleanTime(getField(row, ['time', 'slot', 'hour', 'preferred_time', 'booking_time']));
+            const notes = String(getField(row, ['notes', 'message', 'additional', 'anything', 'comments', 'instructions']) || '');
+
+            const id = generateDeterministicRequestId(timestamp + fullName + (phoneNumber || ''));
             
-            if (hasData) {
-              const id = generateDeterministicRequestId(timestamp + fullName + (phoneNumber || ''));
-              
-              newRequests.push({
-                id,
-                timestamp,
-                fullName,
-                phoneNumber,
-                email,
-                address,
-                city,
-                vehicleMakeModel,
-                serviceRequested,
-                preferredDate,
-                preferredTime,
-                notes,
-                status: 'Pending'
-              });
-            }
+            newRequests.push({
+              id,
+              timestamp,
+              fullName,
+              name: fullName,
+              customerName: fullName,
+              phoneNumber,
+              phone: phoneNumber,
+              email,
+              address,
+              city,
+              vehicle: vehicleMakeModel,
+              vehicleMakeModel,
+              service: serviceRequested,
+              serviceRequested,
+              package: serviceRequested,
+              price,
+              totalPrice: price,
+              date: preferredDate,
+              preferredDate,
+              time: preferredTime,
+              preferredTime,
+              notes,
+              status: 'Pending',
+              isLead: true,
+              updatedAt: new Date().toISOString()
+            });
           });
 
           // Save new imported requests to Firestore public_bookings collection
           let savedCount = 0;
           for (const req of newRequests) {
             try {
-              await setDoc(doc(db, 'public_bookings', req.id), {
-                ...req,
-                status: 'Pending',
-                isLead: true,
-                updatedAt: new Date().toISOString()
-              }, { merge: true });
+              await setDoc(doc(db, 'public_bookings', req.id), req, { merge: true });
               savedCount++;
             } catch (err) {
               console.warn("Could not save lead to Firestore:", err);
@@ -579,9 +687,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
 
           if (savedCount > 0) {
-            toast.success(`Imported ${savedCount} lead(s) to Firestore!`);
+            toast.success(`Successfully synced ${savedCount} booking(s) with customer details, vehicle, package & price!`);
           } else {
-            toast.success("No new requests found in Google Sheet.");
+            toast.success("No new entries found in Google Sheet.");
           }
         },
         error: (error) => {

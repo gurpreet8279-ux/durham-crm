@@ -67,5 +67,8 @@ export interface IncomingRequest {
   preferredDate: string;
   preferredTime: string;
   notes: string;
+  price?: number;
+  paymentStatus?: string;
+  duration?: number;
   status: 'Pending' | 'Approved' | 'Dismissed';
 }

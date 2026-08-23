@@ -362,7 +362,7 @@ export default function CalendarView() {
                             {booking.price !== undefined && (
                               <>
                                 <span className="w-1 h-1 bg-slate-300 rounded-full" />
-                                <span className="text-emerald-600 font-bold">${booking.price}</span>
+                                <span className="text-emerald-600 font-bold">${Number(booking.price) || 0}</span>
                               </>
                             )}
                           </div>

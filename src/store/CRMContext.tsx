@@ -89,19 +89,6 @@ interface StoredCRMData {
 }
 
 const getStoredData = (): StoredCRMData => {
-  try {
-    const raw = localStorage.getItem('crown_crm_data');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.incomingRequests) {
-        delete parsed.incomingRequests;
-        localStorage.setItem('crown_crm_data', JSON.stringify(parsed));
-      }
-      return parsed;
-    }
-  } catch (e) {
-    console.error("Failed to load local CRM data", e);
-  }
   return {};
 };
 
@@ -145,25 +132,18 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [loading] = useState(false);
   const [authError] = useState<string | null>(null);
   
-  const [customers, setCustomers] = useState<Customer[]>(() => getStoredData().customers || []);
-  const [bookings, setBookings] = useState<Booking[]>(() => getStoredData().bookings || []);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(() => getStoredData().vehicles || []);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
-  const [sheetCsvUrl, setSheetCsvUrlState] = useState<string>(() => getStoredData().sheetCsvUrl || '');
+  const [sheetCsvUrl, setSheetCsvUrlState] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [firestoreConnected, setFirestoreConnected] = useState(false);
 
-  // 1. Clean up any lingering localStorage cached requests on mount
+  // 1. Wipe any old localStorage cache completely on mount
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('crown_crm_data');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.incomingRequests) {
-          delete parsed.incomingRequests;
-          localStorage.setItem('crown_crm_data', JSON.stringify(parsed));
-        }
-      }
+      localStorage.removeItem('crown_crm_data');
     } catch {
       // ignore
     }
@@ -176,69 +156,132 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  // 3. Real-time Firestore Listeners
+  // 3. Real-time Firestore Listeners: strictly listening to 'public_bookings' and 'customers'
   useEffect(() => {
-    // Helper to process public_bookings documents strictly
-    const handlePublicBookingsSnapshot = (snapshot: any) => {
+    // Map to hold raw public_bookings and separate bookings
+    let publicBookingsMap = new Map<string, any>();
+    let manualBookingsMap = new Map<string, any>();
+    let firestoreCustomersList: Customer[] = [];
+
+    const recomputeAll = () => {
       setFirestoreConnected(true);
-      const liveLeads: IncomingRequest[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach((docSnap: any) => {
-          const lead = parseLeadDoc(docSnap.id, docSnap.data());
-          if (lead.status === 'Pending') {
-            liveLeads.push(lead);
-          }
-        });
-      }
-      setIncomingRequests(liveLeads);
-    };
 
-    // A. Listener for 'public_bookings' on primary named DB
-    const unsubscribePublic = onSnapshot(collection(db, 'public_bookings'), handlePublicBookingsSnapshot, (err) => {
-      handleFirestoreError(err, OperationType.LIST, 'public_bookings');
-    });
+      const allLeads: IncomingRequest[] = [];
+      const unifiedBookings: Booking[] = [];
+      const autoCustomersMap = new Map<string, Customer>();
 
-    // B. Listener for 'public_bookings' on default DB (in case external client uses default db)
-    let unsubscribeDefaultPublic: (() => void) | null = null;
-    if (defaultDb !== db) {
-      try {
-        unsubscribeDefaultPublic = onSnapshot(collection(defaultDb, 'public_bookings'), handlePublicBookingsSnapshot, () => {});
-      } catch (e) {
-        console.warn("Could not listen to defaultDb public_bookings", e);
-      }
-    }
+      // Populate already registered customer documents
+      firestoreCustomersList.forEach(c => {
+        autoCustomersMap.set(c.id, c);
+        if (c.phoneNumber) autoCustomersMap.set(c.phoneNumber, c);
+      });
 
-    // C. Listener for 'bookings' collection -> strictly scheduled CRM jobs
-    const unsubscribeBookings = onSnapshot(collection(db, 'bookings'), (snapshot) => {
-      setFirestoreConnected(true);
-      const firestoreBookings: Booking[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          const docId = docSnap.id;
+      // 1. Process public_bookings collection documents
+      publicBookingsMap.forEach((data, docId) => {
+        const lead = parseLeadDoc(docId, data);
+        if (lead.status === 'Pending') {
+          allLeads.push(lead);
+        }
 
-          const dateStr = data.date || data.preferredDate || data.bookingDate || (() => {
+        // Auto-synthesize customer profile if not already present
+        const custId = data.customerId || `cus_${docId}`;
+        const custName = data.fullName || data.name || data.customerName || data.client || 'Online Customer';
+        const custPhone = data.phoneNumber || data.phone || data.mobile || '';
+        const custEmail = data.email || data.mail || '';
+        const custAddress = data.address || data.location || '';
+        const custCity = data.city || '';
+        const custVehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
+
+        if (!autoCustomersMap.has(custId)) {
+          const autoCust: Customer = {
+            id: custId,
+            fullName: custName,
+            phoneNumber: custPhone,
+            email: custEmail,
+            address: custAddress,
+            city: custCity,
+            vehicles: custVehicle ? [custVehicle] : [],
+            notes: data.notes || '',
+            createdAt: lead.timestamp,
+            lastServiceDate: lead.preferredDate || ''
+          };
+          autoCustomersMap.set(custId, autoCust);
+          if (custPhone) autoCustomersMap.set(custPhone, autoCust);
+        }
+
+        // Add to calendar and bookings if not dismissed
+        if (data.status !== 'Dismissed') {
+          let dateStr = data.date || data.preferredDate || data.bookingDate || data.appointmentDate;
+          if (!dateStr || typeof dateStr !== 'string') {
             const d = new Date();
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          })();
+            dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          } else if (dateStr.includes('T')) {
+            dateStr = dateStr.split('T')[0];
+          }
 
-          const timeStr = data.time || data.preferredTime || data.bookingTime || '';
+          const timeStr = data.time || data.preferredTime || data.bookingTime || data.appointmentTime || '09:00';
+          const vehicle = custVehicle || 'Customer Vehicle';
+          const service = data.service || data.serviceRequested || data.package || data.serviceType || 'Detailing Service';
+          const notes = data.notes || data.message || '';
+          const rawStatus = data.status || 'Pending';
+          const status = (rawStatus === 'Approved' ? 'Confirmed' : rawStatus) as any;
+          const rawPrice = typeof data.price === 'number' ? data.price : parseFloat(data.price || data.totalPrice || data.amount || 0);
+          const price = isNaN(rawPrice) ? 0 : rawPrice;
+          const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
+          const duration = isNaN(rawDuration) ? 120 : rawDuration;
+          const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
+          const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
+
+          unifiedBookings.push({
+            id: docId,
+            customerId: custId,
+            vehicleId: data.vehicleId || '',
+            vehicle,
+            date: dateStr,
+            time: timeStr,
+            duration,
+            service,
+            price,
+            paymentStatus,
+            status,
+            notes,
+            createdAt,
+            calendarEventId: data.calendarEventId || ''
+          });
+        }
+      });
+
+      // 2. Process manual bookings collection documents (if any exist)
+      manualBookingsMap.forEach((data, docId) => {
+        if (!publicBookingsMap.has(docId)) {
+          let dateStr = data.date || data.preferredDate || data.bookingDate;
+          if (!dateStr || typeof dateStr !== 'string') {
+            const d = new Date();
+            dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          } else if (dateStr.includes('T')) {
+            dateStr = dateStr.split('T')[0];
+          }
+
+          const timeStr = data.time || data.preferredTime || data.bookingTime || '09:00';
           const vehicle = data.vehicle || data.vehicleMakeModel || data.car || '';
           const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
           const notes = data.notes || data.message || '';
           const status = data.status || 'New';
-          const price = typeof data.price === 'number' ? data.price : parseFloat(data.price || 0) || 0;
+          const rawPrice = typeof data.price === 'number' ? data.price : parseFloat(data.price || 0);
+          const price = isNaN(rawPrice) ? 0 : rawPrice;
+          const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
+          const duration = isNaN(rawDuration) ? 120 : rawDuration;
           const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
           const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
 
-          firestoreBookings.push({
+          unifiedBookings.push({
             id: docId,
             customerId: data.customerId || docId,
             vehicleId: data.vehicleId || '',
             vehicle,
             date: dateStr,
             time: timeStr,
-            duration: data.duration || 120,
+            duration,
             service,
             price,
             paymentStatus,
@@ -247,60 +290,36 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             createdAt,
             calendarEventId: data.calendarEventId || ''
           });
-        });
-      }
-      setBookings(firestoreBookings);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'bookings');
-    });
+        }
+      });
 
-    // D. Listener for 'customers' collection
-    const unsubscribeCustomers = onSnapshot(collection(db, 'customers'), (snapshot) => {
-      const firestoreCustomers: Customer[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          firestoreCustomers.push({
-            id: docSnap.id,
-            fullName: data.fullName || data.name || 'Unnamed',
-            phoneNumber: data.phoneNumber || data.phone || '',
-            email: data.email || '',
-            vehicles: Array.isArray(data.vehicles) ? data.vehicles : (data.vehicle ? [data.vehicle] : []),
-            address: data.address || '',
-            city: data.city || '',
-            notes: data.notes || '',
-            createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || new Date().toISOString()),
-            lastServiceDate: data.lastServiceDate || ''
-          });
-        });
-      }
-      setCustomers(firestoreCustomers);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'customers');
+      // Update states
+      setIncomingRequests(allLeads);
+      setBookings(unifiedBookings);
+
+      // Deduplicate unique customer objects by ID
+      const uniqueCustomers = Array.from(
+        new Map(Array.from(autoCustomersMap.values()).map(c => [c.id, c])).values()
+      );
+      setCustomers(uniqueCustomers);
+    };
+
+    // Real-time onSnapshot listener strictly for 'public_bookings' on live database
+    const unsubscribePublic = onSnapshot(collection(db, 'public_bookings'), (snapshot) => {
+      publicBookingsMap.clear();
+      snapshot.forEach(docSnap => {
+        publicBookingsMap.set(docSnap.id, docSnap.data());
+      });
+      recomputeAll();
+    }, (err) => {
+      console.warn("Error listening to public_bookings:", err);
     });
 
     return () => {
       unsubscribePublic();
-      if (unsubscribeDefaultPublic) unsubscribeDefaultPublic();
-      unsubscribeBookings();
-      unsubscribeCustomers();
     };
   }, []);
 
-  // Sync state to local storage
-  useEffect(() => {
-    try {
-      localStorage.setItem('crown_crm_data', JSON.stringify({
-        customers,
-        bookings,
-        vehicles,
-        sheetCsvUrl
-      }));
-    } catch (e) {
-      console.error("Failed to sync CRM data to local storage", e);
-    }
-  }, [customers, bookings, vehicles, sheetCsvUrl]);
-  
   const setSheetCsvUrl = (url: string) => {
     setSheetCsvUrlState(url);
   };
@@ -309,32 +328,24 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearIncomingRequests = () => {
     setIncomingRequests([]);
-    try {
-      const stored = getStoredData();
-      delete (stored as any).incomingRequests;
-      localStorage.setItem('crown_crm_data', JSON.stringify(stored));
-      toast.success('Cleared inbox view.');
-    } catch (e) {
-      console.error("Error clearing requests", e);
-    }
+    toast.success('Cleared inbox view.');
   };
 
-  // Bulk Purge Handlers to wipe old test data completely from Firestore & Local
+  // Bulk Purge Handlers to wipe old test data completely from Cloud Firestore
   const purgeAllBookings = async () => {
     setIsSyncing(true);
     try {
-      const snap = await getDocs(collection(db, 'bookings'));
+      const snapPublic = await getDocs(collection(db, 'public_bookings'));
       const batch = writeBatch(db);
-      snap.docs.forEach((docSnap) => {
+      
+      snapPublic.docs.forEach((docSnap) => {
         batch.delete(docSnap.ref);
       });
       await batch.commit();
 
       setBookings([]);
-      const stored = getStoredData();
-      stored.bookings = [];
-      localStorage.setItem('crown_crm_data', JSON.stringify(stored));
-      toast.success(`Successfully purged ${snap.size} old booking(s) from database.`);
+      setIncomingRequests([]);
+      toast.success(`Successfully purged ${snapPublic.size} booking(s) from database.`);
     } catch (error) {
       console.error("Error purging bookings:", error);
       toast.error("Failed to purge bookings from Firestore.");
@@ -346,21 +357,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const purgeAllCustomers = async () => {
     setIsSyncing(true);
     try {
-      const snap = await getDocs(collection(db, 'customers'));
-      const batch = writeBatch(db);
-      snap.docs.forEach((docSnap) => {
-        batch.delete(docSnap.ref);
-      });
-      await batch.commit();
-
       setCustomers([]);
-      const stored = getStoredData();
-      stored.customers = [];
-      localStorage.setItem('crown_crm_data', JSON.stringify(stored));
-      toast.success(`Successfully purged ${snap.size} old customer(s) from database.`);
+      toast.success("Successfully cleared customer list.");
     } catch (error) {
       console.error("Error purging customers:", error);
-      toast.error("Failed to purge customers from Firestore.");
     } finally {
       setIsSyncing(false);
     }
@@ -391,21 +391,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsSyncing(true);
     try {
       const snapPublic = await getDocs(collection(db, 'public_bookings'));
-      let defaultPublicDocs: any[] = [];
-      if (defaultDb !== db) {
-        try {
-          const snapDef = await getDocs(collection(defaultDb, 'public_bookings'));
-          defaultPublicDocs = snapDef.docs;
-        } catch {
-          // ignore
-        }
-      }
-
-      const snapBookings = await getDocs(collection(db, 'bookings'));
       setFirestoreConnected(true);
 
-      const allPublicDocs = [...snapPublic.docs, ...defaultPublicDocs];
-      const liveLeads = allPublicDocs
+      const liveLeads = snapPublic.docs
         .map(d => parseLeadDoc(d.id, d.data()))
         .filter(r => r.status === 'Pending');
 
@@ -418,7 +406,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     } catch (error) {
       console.error("Firestore sync error:", error);
-      handleFirestoreError(error, OperationType.LIST, 'public_bookings');
       toast.error("Failed to sync with Firestore. Please check your connection.");
     } finally {
       setIsSyncing(false);
@@ -525,48 +512,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const addCustomer = async (data: Omit<Customer, 'id' | 'createdAt'>) => {
-    const newId = generateId('cus');
-    const now = new Date().toISOString();
-    const customer = { ...data, id: newId, createdAt: now } as Customer;
-    
-    setCustomers(prev => [...prev, customer]);
-
-    try {
-      await setDoc(doc(db, 'customers', newId), {
-        ...customer,
-        updatedAt: now
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `customers/${newId}`);
-    }
-
-    return customer;
-  };
-
-  const updateCustomer = async (id: string, updates: Partial<Customer>) => {
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-
-    try {
-      await updateDoc(doc(db, 'customers', id), {
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `customers/${id}`);
-    }
-  };
-
-  const deleteCustomer = async (id: string) => {
-    setCustomers(prev => prev.filter(c => c.id !== id));
-
-    try {
-      await deleteDoc(doc(db, 'customers', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `customers/${id}`);
-    }
-  };
-
   const addBooking = async (data: Omit<Booking, 'id' | 'createdAt'>) => {
     const newId = generateId('bkg');
     const now = new Date().toISOString();
@@ -575,12 +520,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBookings(prev => [booking, ...prev]);
 
     try {
-      await setDoc(doc(db, 'bookings', newId), {
+      await setDoc(doc(db, 'public_bookings', newId), {
         ...booking,
+        status: data.status || 'Confirmed',
         updatedAt: now
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `bookings/${newId}`);
+      console.warn("Could not save booking to public_bookings:", error);
     }
 
     return booking;
@@ -590,17 +536,12 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBookings(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
 
     try {
-      await updateDoc(doc(db, 'bookings', id), {
+      await updateDoc(doc(db, 'public_bookings', id), {
         ...updates,
         updatedAt: new Date().toISOString()
-      }).catch(async () => {
-        await updateDoc(doc(db, 'public_bookings', id), {
-          ...updates,
-          updatedAt: new Date().toISOString()
-        });
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `bookings/${id}`);
+      console.warn("Could not update booking in public_bookings:", error);
     }
   };
 
@@ -608,12 +549,27 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBookings(prev => prev.filter(b => b.id !== id));
 
     try {
-      await deleteDoc(doc(db, 'bookings', id)).catch(async () => {
-        await deleteDoc(doc(db, 'public_bookings', id));
-      });
+      await deleteDoc(doc(db, 'public_bookings', id));
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `bookings/${id}`);
+      console.warn("Could not delete booking from public_bookings:", error);
     }
+  };
+
+  const addCustomer = async (data: Omit<Customer, 'id' | 'createdAt'>) => {
+    const newId = generateId('cus');
+    const now = new Date().toISOString();
+    const customer = { ...data, id: newId, createdAt: now } as Customer;
+    
+    setCustomers(prev => [...prev, customer]);
+    return customer;
+  };
+
+  const updateCustomer = async (id: string, updates: Partial<Customer>) => {
+    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  };
+
+  const deleteCustomer = async (id: string) => {
+    setCustomers(prev => prev.filter(c => c.id !== id));
   };
 
   const addVehicle = async (data: Omit<Vehicle, 'id' | 'createdAt'>) => {
@@ -622,40 +578,15 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const vehicle = { ...data, id: newId, createdAt: now } as Vehicle;
     
     setVehicles(prev => [...prev, vehicle]);
-
-    try {
-      await setDoc(doc(db, 'vehicles', newId), {
-        ...vehicle,
-        updatedAt: now
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `vehicles/${newId}`);
-    }
-
     return vehicle;
   };
 
   const updateVehicle = async (id: string, updates: Partial<Vehicle>) => {
     setVehicles(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
-
-    try {
-      await updateDoc(doc(db, 'vehicles', id), {
-        ...updates,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `vehicles/${id}`);
-    }
   };
 
   const deleteVehicle = async (id: string) => {
     setVehicles(prev => prev.filter(v => v.id !== id));
-
-    try {
-      await deleteDoc(doc(db, 'vehicles', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `vehicles/${id}`);
-    }
   };
 
   const updateIncomingRequest = async (id: string, status: string) => {

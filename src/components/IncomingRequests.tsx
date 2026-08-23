@@ -33,34 +33,15 @@ export default function IncomingRequests() {
           address: req.address || '',
           city: req.city || '',
           notes: 'Added from online booking request.',
-          lastServiceDate: '',
+          lastServiceDate: req.preferredDate || '',
           vehicles: req.vehicleMakeModel ? [req.vehicleMakeModel] : []
         });
         customerId = newCustomer.id;
       }
 
-      // 2. Create the booking
-      await addBooking({
-        customerId,
-        vehicleId: '',
-        vehicle: req.vehicleMakeModel || 'Customer Vehicle',
-        date: req.preferredDate || (() => {
-          const d = new Date();
-          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        })(),
-        time: req.preferredTime || '09:00',
-        duration: 120,
-        service: req.serviceRequested || 'Detailing Service',
-        price: 0,
-        paymentStatus: 'Unpaid',
-        status: 'Confirmed',
-        notes: req.notes || '',
-        calendarEventId: ''
-      });
-
-      // 3. Mark request as Approved
+      // 2. Mark request as Approved in public_bookings
       await updateIncomingRequest(req.id, 'Approved');
-      toast.success('Request approved and added to your Bookings Calendar!');
+      toast.success('Request approved and confirmed on your Bookings Calendar!');
 
     } catch (error) {
       console.error('Error approving request:', error);

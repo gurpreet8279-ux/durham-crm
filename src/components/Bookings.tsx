@@ -52,14 +52,36 @@ export default function Bookings() {
   const getCustomer = (id: string) => customers.find(c => c.id === id);
   
   const parseLocalDatetime = (dStr: string, tStr: string = '00:00') => {
-    const [y, m, d] = dStr.split('-');
-    const [hr, min] = tStr.split(':');
-    return new Date(Number(y), Number(m) - 1, Number(d), Number(hr), Number(min));
+    if (!dStr || typeof dStr !== 'string') return new Date();
+    const parts = dStr.split('-');
+    const tParts = (tStr || '00:00').split(':');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      const hr = parseInt(tParts[0], 10) || 0;
+      const min = parseInt(tParts[1], 10) || 0;
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return new Date(y, m - 1, d, hr, min);
+      }
+    }
+    const parsed = new Date(dStr);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
   };
   
   const parseLocalDate = (dStr: string) => {
-    const [y, m, d] = dStr.split('-');
-    return new Date(Number(y), Number(m) - 1, Number(d));
+    if (!dStr || typeof dStr !== 'string') return new Date();
+    const parts = dStr.split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return new Date(y, m - 1, d);
+      }
+    }
+    const parsed = new Date(dStr);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
   };
 
   const filteredBookings = bookings
@@ -536,11 +558,11 @@ export default function Bookings() {
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         <div className="truncate max-w-[200px]">{booking.service}</div>
-                        {booking.price !== undefined && booking.price > 0 && (
+                        {booking.price !== undefined && (Number(booking.price) || 0) > 0 && (
                           <div className="text-xs font-bold mt-1 flex items-center gap-1.5">
                             <DollarSign size={12} className="text-slate-400"/> 
                             <span className={booking.paymentStatus === 'Paid' ? 'text-emerald-600' : 'text-slate-600'}>
-                              {booking.price.toFixed(2)} {booking.paymentStatus === 'Paid' ? '(Paid)' : ''}
+                              {(Number(booking.price) || 0).toFixed(2)} {booking.paymentStatus === 'Paid' ? '(Paid)' : ''}
                             </span>
                           </div>
                         )}

@@ -14,13 +14,36 @@ export default function Dashboard() {
   
   // Date helpers
   const parseLocalDate = (dStr: string) => {
-    const [y, m, d] = dStr.split('-');
-    return new Date(Number(y), Number(m) - 1, Number(d));
+    if (!dStr || typeof dStr !== 'string') return new Date();
+    const parts = dStr.split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return new Date(y, m - 1, d);
+      }
+    }
+    const parsed = new Date(dStr);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
   };
+
   const parseLocalDatetime = (dStr: string, tStr: string = '00:00') => {
-    const [y, m, d] = dStr.split('-');
-    const [hr, min] = tStr.split(':');
-    return new Date(Number(y), Number(m) - 1, Number(d), Number(hr), Number(min));
+    if (!dStr || typeof dStr !== 'string') return new Date();
+    const parts = dStr.split('-');
+    const tParts = (tStr || '00:00').split(':');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      const hr = parseInt(tParts[0], 10) || 0;
+      const min = parseInt(tParts[1], 10) || 0;
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return new Date(y, m - 1, d, hr, min);
+      }
+    }
+    const parsed = new Date(dStr);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
   };
 
   // Date calculations
@@ -31,15 +54,27 @@ export default function Dashboard() {
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
   // Revenue calculations
-  const totalRevenue = completedBookings.reduce((sum, b) => sum + (b.price || 0), 0);
+  const totalRevenue = completedBookings.reduce((sum, b) => {
+    const p = typeof b.price === 'number' ? (isNaN(b.price) ? 0 : b.price) : (parseFloat(b.price || 0) || 0);
+    return sum + p;
+  }, 0);
+
   const weeklyRevenue = completedBookings
     .filter(b => parseLocalDate(b.date) >= startOfWeek)
-    .reduce((sum, b) => sum + (b.price || 0), 0);
+    .reduce((sum, b) => {
+      const p = typeof b.price === 'number' ? (isNaN(b.price) ? 0 : b.price) : (parseFloat(b.price || 0) || 0);
+      return sum + p;
+    }, 0);
+
   const monthlyRevenue = completedBookings
     .filter(b => parseLocalDate(b.date) >= startOfMonth)
-    .reduce((sum, b) => sum + (b.price || 0), 0);
+    .reduce((sum, b) => {
+      const p = typeof b.price === 'number' ? (isNaN(b.price) ? 0 : b.price) : (parseFloat(b.price || 0) || 0);
+      return sum + p;
+    }, 0);
 
-  const averageSpend = completedBookings.length > 0 ? totalRevenue / completedBookings.length : 0;
+  const rawAvgSpend = completedBookings.length > 0 ? totalRevenue / completedBookings.length : 0;
+  const averageSpend = isNaN(rawAvgSpend) ? 0 : rawAvgSpend;
 
   // Returning Customers
   const customerBookingCounts = bookings.reduce((acc, b) => {

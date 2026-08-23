@@ -20,7 +20,10 @@ export default function Manifest() {
       return timeA.localeCompare(timeB);
     });
 
-  const totalRevenue = todayJobs.reduce((sum, job) => sum + (job.price || 0), 0);
+  const totalRevenue = todayJobs.reduce((sum, job) => {
+    const p = typeof job.price === 'number' ? (isNaN(job.price) ? 0 : job.price) : (parseFloat(job.price || 0) || 0);
+    return sum + p;
+  }, 0);
   
   const getCustomer = (id: string) => customers.find(c => c.id === id);
 
@@ -147,7 +150,7 @@ export default function Manifest() {
                   <div>
                     <div className="font-bold text-slate-900 text-lg leading-tight">{formatTime(job.time)}</div>
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1 flex items-center gap-1">
-                      <Clock size={12} /> {job.duration} MIN
+                      <Clock size={12} /> {Number(job.duration) || 120} MIN
                     </div>
                   </div>
                   <div className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
@@ -170,9 +173,9 @@ export default function Manifest() {
                         </div>
                       </div>
                       
-                      {job.price && job.price > 0 && (
+                      {job.price !== undefined && (Number(job.price) || 0) > 0 && (
                         <div className="text-right">
-                          <div className="text-lg font-bold text-slate-900">${job.price.toFixed(2)}</div>
+                          <div className="text-lg font-bold text-slate-900">${(Number(job.price) || 0).toFixed(2)}</div>
                           <div className={`text-[10px] uppercase font-bold tracking-wider mt-0.5 ${job.paymentStatus === 'Paid' ? 'text-emerald-600' : 'text-slate-400'}`}>
                             {job.paymentStatus}
                           </div>

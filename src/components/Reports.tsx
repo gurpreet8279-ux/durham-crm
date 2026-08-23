@@ -40,8 +40,18 @@ export default function Reports() {
 
   // Helper: parse a local YYYY-MM-DD string into a real Date object in local timezone
   const parseLocalDate = (dateStr: string): Date => {
-    const [year, month, day] = dateStr.split('-').map(Number);
-    return new Date(year, month - 1, day);
+    if (!dateStr || typeof dateStr !== 'string') return new Date();
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10);
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+        return new Date(year, month - 1, day);
+      }
+    }
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? new Date() : d;
   };
 
   // Helper: format a date nicely
@@ -147,8 +157,12 @@ export default function Reports() {
     const completedCount = filteredBookings.filter(b => b.status === 'Completed').length;
     
     // Total Revenue of Completed or Paid bookings
-    const totalRevenue = completedOrPaid.reduce((sum, b) => sum + (b.price || 0), 0);
-    const avgBookingValue = completedOrPaid.length > 0 ? totalRevenue / completedOrPaid.length : 0;
+    const totalRevenue = completedOrPaid.reduce((sum, b) => {
+      const p = typeof b.price === 'number' ? (isNaN(b.price) ? 0 : b.price) : (parseFloat(b.price || 0) || 0);
+      return sum + p;
+    }, 0);
+    const rawAvg = completedOrPaid.length > 0 ? totalRevenue / completedOrPaid.length : 0;
+    const avgBookingValue = isNaN(rawAvg) ? 0 : rawAvg;
 
     // Unique clients in filtered bookings
     const uniqueClients = new Set(filteredBookings.map(b => b.customerId));

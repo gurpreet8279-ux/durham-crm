@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer of the detailing business",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string", "maxLength": 150 },
+        "phoneNumber": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "address": { "type": "string", "maxLength": 300 },
+        "city": { "type": "string", "maxLength": 100 },
+        "vehicles": { "type": "array", "items": { "type": "string", "maxLength": 100 } },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "lastServiceDate": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["fullName"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "A detailing booking or incoming lead",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "fullName": { "type": "string", "maxLength": 150 },
+        "phoneNumber": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "address": { "type": "string", "maxLength": 300 },
+        "city": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string", "maxLength": 30 },
+        "time": { "type": "string", "maxLength": 20 },
+        "preferredDate": { "type": "string", "maxLength": 30 },
+        "preferredTime": { "type": "string", "maxLength": 20 },
+        "vehicle": { "type": "string", "maxLength": 150 },
+        "vehicleMakeModel": { "type": "string", "maxLength": 150 },
+        "service": { "type": "string", "maxLength": 150 },
+        "serviceRequested": { "type": "string", "maxLength": 150 },
+        "price": { "type": "number" },
+        "status": { "type": "string", "maxLength": 50 },
+        "paymentStatus": { "type": "string", "maxLength": 20 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "duration": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["service"]
+    }
+  },
+  "firestore": {
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Collection of all bookings and online leads."
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Collection of customer records."
+    },
+    "/incoming_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Collection of incoming booking requests."
+    }
+  }
+}

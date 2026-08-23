@@ -304,8 +304,93 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCustomers(uniqueCustomers);
     };
 
+    let isFirstLoad = true;
+
     // Real-time onSnapshot listener strictly for 'public_bookings' on live database
     const unsubscribePublic = onSnapshot(collection(db, 'public_bookings'), (snapshot) => {
+      // Check for freshly added pending bookings
+      if (!isFirstLoad) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const data = change.doc.data();
+            const rawStatus = (data.status || 'Pending').toLowerCase();
+            const isPending = rawStatus === 'pending' || rawStatus === 'new';
+            const clientName = data.fullName || data.name || data.customerName || data.client || 'New Customer';
+            const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
+            
+            // Trigger instant UI Alert & Notification Sound
+            toast.custom((t) => (
+              <div
+                className={`${
+                  t.visible ? 'animate-enter' : 'animate-leave'
+                } max-w-md w-full bg-slate-900 shadow-2xl rounded-xl pointer-events-auto flex ring-1 ring-black/5 border border-blue-500/40 p-4 text-white`}
+              >
+                <div className="flex-1 w-0">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0 pt-0.5">
+                      <span className="flex h-3 w-3 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                      </span>
+                    </div>
+                    <div className="ml-3 flex-1">
+                      <p className="text-sm font-bold text-white flex items-center gap-2">
+                        🎉 New Booking Received!
+                        <span className="bg-blue-500/20 text-blue-300 border border-blue-400/30 text-[10px] px-2 py-0.5 rounded-full font-semibold">
+                          Live Auto-Added
+                        </span>
+                      </p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        <strong className="text-white">{clientName}</strong> booked <strong>{service}</strong>.
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        📅 {data.date || data.preferredDate || 'Scheduled'} at {data.time || data.preferredTime || '09:00'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ), { duration: 6000 });
+
+            // Play pleasant Web Audio API notification chime
+            try {
+              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+              if (AudioCtx) {
+                const ctx = new AudioCtx();
+                const now = ctx.currentTime;
+                
+                const osc1 = ctx.createOscillator();
+                const osc2 = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(587.33, now); // D5
+                osc1.frequency.exponentialRampToValueAtTime(880, now + 0.15); // A5
+
+                osc2.type = 'triangle';
+                osc2.frequency.setValueAtTime(880, now + 0.15);
+                osc2.frequency.exponentialRampToValueAtTime(1174.66, now + 0.35); // D6
+
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc1.start(now);
+                osc1.stop(now + 0.2);
+                osc2.start(now + 0.15);
+                osc2.stop(now + 0.5);
+              }
+            } catch {
+              // audio context blocked or unsupported
+            }
+          }
+        });
+      }
+      isFirstLoad = false;
+
       publicBookingsMap.clear();
       snapshot.forEach(docSnap => {
         publicBookingsMap.set(docSnap.id, docSnap.data());

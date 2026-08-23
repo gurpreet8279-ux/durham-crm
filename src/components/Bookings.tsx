@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Booking, BookingStatus, Customer } from '../types';
 import { useCRM } from '../store/useCRM';
-import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users } from 'lucide-react';
+import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users, DownloadCloud, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDialog } from './DialogProvider';
 import { triggerSmsForStatusChange } from '../lib/sms';
@@ -11,7 +11,7 @@ const STATUS_OPTIONS: BookingStatus[] = [
 ];
 
 export default function Bookings() {
-  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer, updateCustomer, purgeAllBookings } = useCRM();
+  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer, updateCustomer, purgeAllBookings, syncFromGoogleForm, isSyncing, sheetCsvUrl } = useCRM();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -488,7 +488,19 @@ export default function Bookings() {
             className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {sheetCsvUrl && (
+            <button
+              onClick={syncFromGoogleForm}
+              disabled={isSyncing}
+              title="Fetch offline / manual responses submitted to your Google Form"
+              className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            >
+              <DownloadCloud size={16} className={isSyncing ? 'animate-bounce text-emerald-600' : 'text-emerald-600'} />
+              {isSyncing ? 'Fetching Google Form...' : 'Fetch Google Form Bookings'}
+            </button>
+          )}
+
           {bookings.length > 0 && (
             <button 
               onClick={async () => {

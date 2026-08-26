@@ -793,6 +793,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
             const id = `sheet_${generateDeterministicRequestId(uniqueKeySignature)}`;
             
+            // Extract status if the sheet has a status column, otherwise default to undefined
+            const explicitSheetStatus = getField(row, ['status', 'booking_status', 'state', 'stage']);
+
             sheetRecords.push({
               id,
               source: 'google_sheet',
@@ -817,17 +820,35 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               time: preferredTime,
               preferredTime,
               notes,
-              status: 'Pending',
+              explicitSheetStatus: explicitSheetStatus || null,
               isLead: true,
               updatedAt: new Date().toISOString()
             });
+          });
+
+          // Fetch existing public_bookings to preserve current CRM statuses (e.g. Confirmed, In Progress, Completed)
+          const existingDocsSnap = await getDocs(collection(db, 'public_bookings'));
+          const existingStatusMap = new Map<string, string>();
+          existingDocsSnap.forEach(d => {
+            const data = d.data();
+            if (data?.status) {
+              existingStatusMap.set(d.id, data.status);
+            }
           });
 
           // Reconcile all parsed rows into Firestore (updating existing records with edits, adding new rows)
           let savedCount = 0;
           for (const req of sheetRecords) {
             try {
-              await setDoc(doc(db, 'public_bookings', req.id), req, { merge: true });
+              // Preserve status: explicit sheet column > existing CRM status > default 'Pending'
+              const currentStatus = req.explicitSheetStatus || existingStatusMap.get(req.id) || 'Pending';
+              const { explicitSheetStatus, ...docData } = req;
+              const recordToSave = {
+                ...docData,
+                status: currentStatus
+              };
+
+              await setDoc(doc(db, 'public_bookings', req.id), recordToSave, { merge: true });
               savedCount++;
             } catch (err) {
               console.warn("Could not reconcile sheet row into Firestore:", err);
@@ -867,7 +888,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...booking,
         status: data.status || 'Confirmed',
         updatedAt: now
-      });
+      }, { merge: true });
     } catch (error) {
       console.warn("Could not save booking to public_bookings:", error);
     }
@@ -879,10 +900,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBookings(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
 
     try {
-      await updateDoc(doc(db, 'public_bookings', id), {
+      await setDoc(doc(db, 'public_bookings', id), {
         ...updates,
         updatedAt: new Date().toISOString()
-      });
+      }, { merge: true });
     } catch (error) {
       console.warn("Could not update booking in public_bookings:", error);
     }

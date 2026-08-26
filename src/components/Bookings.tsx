@@ -502,20 +502,55 @@ export default function Bookings() {
     );
   }
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Completed': return <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Completed</span>;
-      case 'Paid': return <span className="bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Paid</span>;
-      case 'In Progress': return <span className="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">In Progress</span>;
-      case 'On The Way': return <span className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">On The Way</span>;
-      case 'Technician Assigned': return <span className="bg-indigo-100 text-indigo-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Assigned</span>;
-      case 'Reminder Sent': return <span className="bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Reminder</span>;
-      case 'Confirmed': return <span className="bg-sky-100 text-sky-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Confirmed</span>;
-      case 'Cancelled': return <span className="bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Cancelled</span>;
-      case 'Rescheduled': return <span className="bg-orange-100 text-orange-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Rescheduled</span>;
-      case 'New': return <span className="bg-slate-100 text-slate-800 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">New</span>;
-      default: return <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">{status}</span>;
+  const handleQuickStatusChange = async (booking: Booking, newStatus: BookingStatus) => {
+    try {
+      await updateBooking(booking.id, { status: newStatus });
+      toast.success(`Status updated to ${newStatus}`);
+      const customer = getCustomer(booking.customerId, booking);
+      if (customer) {
+        triggerSmsForStatusChange({ ...booking, status: newStatus }, customer, newStatus);
+      }
+    } catch (err) {
+      toast.error('Failed to update status');
     }
+  };
+
+  const getStatusBadge = (status: string, booking?: Booking) => {
+    const getBadgeClass = (st: string) => {
+      switch (st) {
+        case 'Completed': return 'bg-green-100 text-green-700 hover:bg-green-200';
+        case 'Paid': return 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200';
+        case 'In Progress': return 'bg-purple-100 text-purple-700 hover:bg-purple-200';
+        case 'On The Way': return 'bg-blue-100 text-blue-700 hover:bg-blue-200';
+        case 'Technician Assigned': return 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200';
+        case 'Reminder Sent': return 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100';
+        case 'Confirmed': return 'bg-sky-100 text-sky-700 hover:bg-sky-200';
+        case 'Cancelled': return 'bg-red-100 text-red-700 hover:bg-red-200';
+        case 'Rescheduled': return 'bg-orange-100 text-orange-700 hover:bg-orange-200';
+        case 'New': return 'bg-slate-100 text-slate-800 hover:bg-slate-200';
+        default: return 'bg-slate-100 text-slate-700 hover:bg-slate-200';
+      }
+    };
+
+    if (booking) {
+      return (
+        <select
+          value={booking.status || 'Confirmed'}
+          onChange={(e) => handleQuickStatusChange(booking, e.target.value as BookingStatus)}
+          className={`cursor-pointer px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border-0 outline-none transition-colors ${getBadgeClass(booking.status)}`}
+        >
+          {STATUS_OPTIONS.map(opt => (
+            <option key={opt} value={opt} className="bg-white text-slate-900 normal-case font-normal">{opt}</option>
+          ))}
+        </select>
+      );
+    }
+
+    return (
+      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${getBadgeClass(status)}`}>
+        {status}
+      </span>
+    );
   };
 
   return (
@@ -671,7 +706,7 @@ export default function Bookings() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {getStatusBadge(booking.status)}
+                        {getStatusBadge(booking.status, booking)}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">

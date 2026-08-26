@@ -17,7 +17,7 @@ function MainApp() {
   const { incomingRequests } = useCRM();
   
   // Count of pending incoming leads
-  const pendingCount = incomingRequests.filter(r => r.status === 'Pending' || (r.status !== 'Approved' && r.status !== 'Dismissed')).length;
+  const pendingCount = incomingRequests.filter(r => r.status === 'Pending').length;
 
   const tabs = [
     { id: 'manifest', label: 'Manifest', icon: MapIcon },

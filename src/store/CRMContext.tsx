@@ -212,6 +212,15 @@ function parseCleanTime(rawTime: any): string {
   return '09:00';
 }
 
+export function isPendingLeadStatus(rawStatus?: string): boolean {
+  if (!rawStatus) return true;
+  const s = String(rawStatus).trim().toLowerCase();
+  if (['approved', 'dismissed', 'confirmed', 'in progress', 'completed', 'paid', 'cancelled', 'canceled', 'rescheduled', 'on the way', 'technician assigned', 'reminder sent', 'closed'].includes(s)) {
+    return false;
+  }
+  return s === 'pending' || s === 'new' || s === 'lead' || s === 'unread';
+}
+
 function parseLeadDoc(docId: string, data: any): IncomingRequest {
   const fullName = getField(data, ['fullName', 'name', 'customerName', 'clientName', 'customer', 'client', 'contactName', 'full_name', 'customer_name']) || 'Online Customer';
   const phone = String(getField(data, ['phoneNumber', 'phone', 'mobile', 'cell', 'contact', 'telephone', 'phone_number']) || '');
@@ -225,8 +234,17 @@ function parseLeadDoc(docId: string, data: any): IncomingRequest {
   const address = String(getField(data, ['address', 'location', 'street', 'streetAddress', 'street_address']) || '');
   const city = String(getField(data, ['city', 'town', 'municipality', 'zip', 'postalCode']) || '');
   const notes = String(getField(data, ['notes', 'message', 'comments', 'specialInstructions', 'additionalNotes']) || '');
-  const status = String(data.status || 'Pending');
+  const rawStatus = String(data.status || 'Pending').trim();
   const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
+
+  let leadStatus: 'Pending' | 'Approved' | 'Dismissed' = 'Pending';
+  if (rawStatus.toLowerCase() === 'dismissed') {
+    leadStatus = 'Dismissed';
+  } else if (!isPendingLeadStatus(rawStatus)) {
+    leadStatus = 'Approved';
+  } else {
+    leadStatus = 'Pending';
+  }
 
   return {
     id: docId,
@@ -242,7 +260,7 @@ function parseLeadDoc(docId: string, data: any): IncomingRequest {
     preferredDate: dateStr,
     preferredTime: timeStr,
     notes,
-    status: status === 'Approved' ? 'Approved' : status === 'Dismissed' ? 'Dismissed' : 'Pending'
+    status: leadStatus
   };
 }
 

@@ -12,7 +12,7 @@ export default function IncomingRequests() {
   const { confirm } = useDialog();
 
   // Only show pending requests
-  const pendingRequests = incomingRequests.filter(req => req.status !== 'Approved' && req.status !== 'Dismissed' && req.fullName);
+  const pendingRequests = incomingRequests.filter(req => req.status === 'Pending' && req.fullName);
 
   const handleApprove = async (req: IncomingRequest) => {
     setProcessing(req.id);

@@ -1,7 +1,8 @@
-import { MessageSquare, FileSpreadsheet, DownloadCloud, CheckCircle2, Database, RefreshCw, Radio, Trash2, AlertTriangle } from 'lucide-react';
+import { MessageSquare, DownloadCloud, CheckCircle2, Database, RefreshCw, Trash2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { useCRM } from '../store/useCRM';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDialog } from './DialogProvider';
+import toast from 'react-hot-toast';
 
 export default function AdminDashboard() {
   const { 
@@ -10,8 +11,8 @@ export default function AdminDashboard() {
     incomingRequests,
     sheetCsvUrl, 
     setSheetCsvUrl, 
-    syncFromGoogleForm, 
-    syncFromFirestore, 
+    syncSheetBookings, 
+    syncWebsiteBookings, 
     purgeAllBookings,
     purgeAllCustomers,
     purgeAllIncomingLeads,
@@ -24,10 +25,17 @@ export default function AdminDashboard() {
   const [purging, setPurging] = useState<string | null>(null);
   const { confirm } = useDialog();
 
-  const handleSave = () => {
-    setSheetCsvUrl(localUrl);
+  useEffect(() => {
+    if (sheetCsvUrl) {
+      setLocalUrl(sheetCsvUrl);
+    }
+  }, [sheetCsvUrl]);
+
+  const handleSave = async () => {
+    await setSheetCsvUrl(localUrl);
     setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    toast.success('Saved ✓');
+    setTimeout(() => setSaved(false), 3500);
   };
 
   const handlePurgeBookings = async () => {
@@ -99,12 +107,12 @@ export default function AdminDashboard() {
             Real-time synchronization is active.
           </p>
           <button
-            onClick={syncFromFirestore}
+            onClick={syncWebsiteBookings}
             disabled={isSyncing}
             className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-            {isSyncing ? 'Syncing...' : 'Sync Database'}
+            {isSyncing ? 'Syncing...' : 'Sync Website Bookings'}
           </button>
         </div>
       </div>
@@ -166,17 +174,23 @@ export default function AdminDashboard() {
       {/* Google Forms / Sheets Sync Card */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <DownloadCloud className="text-blue-500" size={20} /> Google Forms Sync (Alternative Import)
+          <DownloadCloud className="text-blue-500" size={20} /> Offline / Google Sheet CSV Sync
         </h3>
         <p className="text-sm text-slate-600 mb-4 leading-relaxed">
-          If you also use a Google Form for bookings, you can pull responses into your CRM. 
-          Go to your Google Sheet, click <strong>File &gt; Share &gt; Publish to web</strong>, 
-          select <strong>Comma-separated values (.csv)</strong>, and paste the link below.
+          If you take bookings offline or via a Google Form / Sheet, publish your sheet to the web as a CSV.
+          Go to Google Sheets &gt; <strong>File &gt; Share &gt; Publish to web</strong> &gt; select <strong>Comma-separated values (.csv)</strong>, and paste the URL below.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3 items-end">
           <div className="flex-1 w-full">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Published CSV Link</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-slate-700">Published Google Sheet CSV Link</label>
+              {saved && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+                  <CheckCircle2 size={13} /> Saved ✓
+                </span>
+              )}
+            </div>
             <input 
               type="text" 
               value={localUrl}
@@ -187,24 +201,29 @@ export default function AdminDashboard() {
           </div>
           <button 
             onClick={handleSave}
-            className="w-full sm:w-auto px-6 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+            className={`w-full sm:w-auto px-6 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+              saved 
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700' 
+                : 'bg-slate-900 text-white hover:bg-slate-800'
+            }`}
           >
-            {saved ? <><CheckCircle2 size={16} /> Saved</> : 'Save Link'}
+            {saved ? <><CheckCircle2 size={16} /> Saved ✓</> : 'Save Link'}
           </button>
         </div>
         
         {sheetCsvUrl && (
-          <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+          <div className="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium text-slate-900">Google Sheet Connection</p>
-              <p className="text-xs text-slate-500">Import responses from your published Google Form sheet.</p>
+              <p className="text-xs text-slate-500">Reconcile all offline rows into CRM (updates modified rows, inserts new ones).</p>
             </div>
             <button
-              onClick={syncFromGoogleForm}
+              onClick={syncSheetBookings}
               disabled={isSyncing}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {isSyncing ? 'Syncing...' : 'Sync CSV Now'}
+              <FileSpreadsheet size={16} />
+              {isSyncing ? 'Syncing...' : 'Sync Sheet Bookings'}
             </button>
           </div>
         )}

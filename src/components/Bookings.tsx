@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Booking, BookingStatus, Customer } from '../types';
 import { useCRM } from '../store/useCRM';
-import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users, DownloadCloud, RefreshCw, Phone, Mail, MessageSquare } from 'lucide-react';
+import { Plus, Calendar, Clock, DollarSign, Edit2, Trash2, X, Check, Search, Car, UserPlus, Users, DownloadCloud, RefreshCw, Phone, Mail, MessageSquare, FileSpreadsheet, Database } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDialog } from './DialogProvider';
 import { triggerSmsForStatusChange } from '../lib/sms';
@@ -11,7 +11,20 @@ const STATUS_OPTIONS: BookingStatus[] = [
 ];
 
 export default function Bookings() {
-  const { bookings, customers, addBooking, updateBooking, deleteBooking, addCustomer, updateCustomer, purgeAllBookings, syncFromGoogleForm, isSyncing, sheetCsvUrl } = useCRM();
+  const { 
+    bookings, 
+    customers, 
+    addBooking, 
+    updateBooking, 
+    deleteBooking, 
+    addCustomer, 
+    updateCustomer, 
+    purgeAllBookings, 
+    syncSheetBookings,
+    syncWebsiteBookings,
+    isSyncing, 
+    sheetCsvUrl 
+  } = useCRM();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -519,15 +532,25 @@ export default function Bookings() {
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={syncWebsiteBookings}
+            disabled={isSyncing}
+            title="Sync online bookings directly from Firestore"
+            className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+          >
+            <Database size={15} className={isSyncing ? 'animate-spin' : 'text-blue-400'} />
+            {isSyncing ? 'Syncing...' : 'Sync Website Bookings'}
+          </button>
+
           {sheetCsvUrl && (
             <button
-              onClick={syncFromGoogleForm}
+              onClick={syncSheetBookings}
               disabled={isSyncing}
-              title="Fetch offline / manual responses submitted to your Google Form"
+              title="Fetch and reconcile offline / manual bookings from your Google Sheet CSV"
               className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
             >
-              <DownloadCloud size={16} className={isSyncing ? 'animate-bounce text-emerald-600' : 'text-emerald-600'} />
-              {isSyncing ? 'Fetching Google Form...' : 'Fetch Google Form Bookings'}
+              <FileSpreadsheet size={15} className={isSyncing ? 'animate-pulse text-emerald-600' : 'text-emerald-600'} />
+              {isSyncing ? 'Syncing CSV...' : 'Sync Sheet Bookings'}
             </button>
           )}
 

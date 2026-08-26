@@ -7,6 +7,7 @@ import {
   doc, 
   onSnapshot, 
   setDoc, 
+  getDoc,
   updateDoc, 
   deleteDoc, 
   getDocs,
@@ -53,9 +54,11 @@ interface CRMContextType {
   clearIncomingRequests: () => void;
   refreshRequests: () => Promise<void>;
   sheetCsvUrl: string;
-  setSheetCsvUrl: (url: string) => void;
+  setSheetCsvUrl: (url: string) => Promise<void>;
   syncFromGoogleForm: () => Promise<void>;
   syncFromFirestore: () => Promise<void>;
+  syncWebsiteBookings: () => Promise<void>;
+  syncSheetBookings: () => Promise<void>;
   isSyncing: boolean;
   firestoreConnected: boolean;
   firestoreDatabaseId: string;
@@ -256,7 +259,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isSyncing, setIsSyncing] = useState(false);
   const [firestoreConnected, setFirestoreConnected] = useState(false);
 
-  // 1. Wipe any old localStorage cache completely on mount
+  // 1. Wipe any old localStorage cache completely on mount, but preserve offlineBookingsCsvUrl
   useEffect(() => {
     try {
       localStorage.removeItem('crown_crm_data');
@@ -265,14 +268,49 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  // 2. Initial connection check
+  // 2. Persistence layer for CSV link: Firestore (cross-device source of truth) + localStorage (instant fallback)
+  useEffect(() => {
+    // Initial immediate read from localStorage
+    try {
+      const local = localStorage.getItem('offlineBookingsCsvUrl');
+      if (local && local.trim()) {
+        setSheetCsvUrlState(local.trim());
+      }
+    } catch (e) {
+      console.warn("Could not read offlineBookingsCsvUrl from localStorage:", e);
+    }
+
+    // Subscribe to Firestore settings/csvConfig for cross-device synchronization
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'csvConfig'), (configSnap) => {
+      if (configSnap.exists()) {
+        const remoteUrl = configSnap.data()?.url;
+        if (remoteUrl && typeof remoteUrl === 'string' && remoteUrl.trim()) {
+          const trimmed = remoteUrl.trim();
+          setSheetCsvUrlState(trimmed);
+          try {
+            localStorage.setItem('offlineBookingsCsvUrl', trimmed);
+          } catch (e) {
+            console.warn("Could not sync offlineBookingsCsvUrl to localStorage:", e);
+          }
+        }
+      }
+    }, (err) => {
+      console.warn("Firestore settings/csvConfig listener note:", err);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // 3. Initial connection check
   useEffect(() => {
     testFirestoreConnection().then((connected) => {
       setFirestoreConnected(connected);
     });
   }, []);
 
-  // 3. Real-time Firestore Listeners: strictly listening to 'public_bookings' and 'customers'
+  // 4. Real-time Firestore Listeners: strictly listening to 'public_bookings' and 'customers'
   useEffect(() => {
     // Map to hold raw public_bookings and separate bookings
     let publicBookingsMap = new Map<string, any>();
@@ -511,8 +549,29 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  const setSheetCsvUrl = (url: string) => {
-    setSheetCsvUrlState(url);
+  // Fix B: Save CSV URL to state, localStorage (offlineBookingsCsvUrl), and Firestore (settings/csvConfig)
+  const setSheetCsvUrl = async (url: string) => {
+    const trimmed = (url || '').trim();
+    setSheetCsvUrlState(trimmed);
+
+    try {
+      if (trimmed) {
+        localStorage.setItem('offlineBookingsCsvUrl', trimmed);
+      } else {
+        localStorage.removeItem('offlineBookingsCsvUrl');
+      }
+    } catch (e) {
+      console.warn("Could not save offlineBookingsCsvUrl to localStorage:", e);
+    }
+
+    try {
+      await setDoc(doc(db, 'settings', 'csvConfig'), {
+        url: trimmed,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      console.warn("Could not save settings/csvConfig to Firestore:", error);
+    }
   };
 
   const login = async () => {};
@@ -577,35 +636,109 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Manual Firestore sync trigger
-  const syncFromFirestore = async () => {
+  // Fix A: Isolated Website Bookings Sync (Firestore only, never touches sheet/CSV)
+  const syncWebsiteBookings = async () => {
     setIsSyncing(true);
     try {
       const snapPublic = await getDocs(collection(db, 'public_bookings'));
       setFirestoreConnected(true);
 
-      const liveLeads = snapPublic.docs
-        .map(d => parseLeadDoc(d.id, d.data()))
-        .filter(r => r.status === 'Pending');
+      const allLeads: IncomingRequest[] = [];
+      const unifiedBookings: Booking[] = [];
+      const autoCustomersMap = new Map<string, Customer>();
 
-      setIncomingRequests(liveLeads);
+      snapPublic.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        const lead = parseLeadDoc(docSnap.id, data);
+        if (lead.status === 'Pending') {
+          allLeads.push(lead);
+        }
 
-      if (liveLeads.length > 0) {
-        toast.success(`Found ${liveLeads.length} fresh online lead(s) in public_bookings!`);
-      } else {
-        toast.success(`Database sync complete: 0 pending online leads.`);
-      }
+        const custName = lead.fullName || 'Online Customer';
+        const custPhone = lead.phoneNumber || '';
+        const custEmail = lead.email || '';
+        const custAddress = lead.address || '';
+        const custCity = lead.city || '';
+        const custVehicle = lead.vehicleMakeModel || '';
+        const custId = data.customerId || (custPhone ? `cus_${custPhone.replace(/[^0-9]/g, '')}` : `cus_${docSnap.id}`);
+
+        if (!autoCustomersMap.has(custId)) {
+          const autoCust: Customer = {
+            id: custId,
+            fullName: custName,
+            phoneNumber: custPhone,
+            email: custEmail,
+            address: custAddress,
+            city: custCity,
+            vehicles: custVehicle ? [custVehicle] : [],
+            notes: lead.notes || '',
+            createdAt: lead.timestamp,
+            lastServiceDate: lead.preferredDate || ''
+          };
+          autoCustomersMap.set(custId, autoCust);
+          if (custPhone) autoCustomersMap.set(custPhone, autoCust);
+        } else {
+          const existingCust = autoCustomersMap.get(custId)!;
+          if (custVehicle && existingCust.vehicles && !existingCust.vehicles.includes(custVehicle)) {
+            existingCust.vehicles.push(custVehicle);
+          }
+        }
+
+        if (data.status !== 'Dismissed') {
+          const dateStr = lead.preferredDate;
+          const timeStr = lead.preferredTime || '09:00';
+          const vehicle = custVehicle || 'Customer Vehicle';
+          const service = lead.serviceRequested || 'Detailing Service';
+          const notes = lead.notes || '';
+          const rawStatus = data.status || 'Pending';
+          const status = (rawStatus === 'Approved' ? 'Confirmed' : rawStatus) as any;
+          const price = lead.price !== undefined ? lead.price : parseCleanPrice(getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice', 'total', 'fee']), service);
+          const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
+          const duration = isNaN(rawDuration) ? 120 : rawDuration;
+          const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
+          const createdAt = lead.timestamp;
+
+          unifiedBookings.push({
+            id: docSnap.id,
+            customerId: custId,
+            vehicleId: data.vehicleId || '',
+            vehicle,
+            date: dateStr,
+            time: timeStr,
+            duration,
+            service,
+            price,
+            paymentStatus,
+            status,
+            notes,
+            createdAt,
+            calendarEventId: data.calendarEventId || ''
+          });
+        }
+      });
+
+      setIncomingRequests(allLeads);
+      setBookings(unifiedBookings);
+      const uniqueCustomers = Array.from(
+        new Map(Array.from(autoCustomersMap.values()).map(c => [c.id, c])).values()
+      );
+      setCustomers(uniqueCustomers);
+
+      toast.success(`Synced ${unifiedBookings.length} website booking(s) from Firestore!`);
     } catch (error) {
-      console.error("Firestore sync error:", error);
-      toast.error("Failed to sync with Firestore. Please check your connection.");
+      console.error("Website bookings sync error:", error);
+      toast.error("Failed to sync website bookings from Firestore.");
     } finally {
       setIsSyncing(false);
     }
   };
+
+  const syncFromFirestore = syncWebsiteBookings;
   
-  const syncFromGoogleForm = async () => {
+  // Fix C: Isolated Sheet Bookings Sync (CSV only, full re-sync and reconciliation by unique key)
+  const syncSheetBookings = async () => {
     if (!sheetCsvUrl) {
-      toast.error("Please enter a Google Sheet CSV URL in the Admin tab.");
+      toast.error("Please enter and save your published Google Sheet CSV link in the Admin tab first.");
       return;
     }
     
@@ -616,7 +749,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : `${sheetCsvUrl}?_t=${new Date().getTime()}`;
         
       const response = await fetch(urlWithCacheBuster, { cache: 'no-store' });
-      if (!response.ok) throw new Error("Failed to fetch CSV");
+      if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch CSV`);
       
       const csvText = await response.text();
       
@@ -624,14 +757,15 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         header: true,
         skipEmptyLines: true,
         complete: async (results) => {
-          const newRequests: any[] = [];
+          const sheetRecords: any[] = [];
           
-          results.data.forEach((row: any) => {
+          results.data.forEach((row: any, index: number) => {
             const hasData = Object.values(row).some(v => typeof v === 'string' && v.trim() !== '');
             if (!hasData) return;
 
-            const timestamp = String(getField(row, ['timestamp', 'created', 'date_submitted']) || new Date().toISOString());
-            const fullName = String(getField(row, ['fullName', 'name', 'first_name', 'last_name', 'customer', 'client', 'who', 'customer_name']) || 'Google Form Customer');
+            const rowNumber = String(getField(row, ['#', 'row', 'row_number', 'rowNumber', 'id', 'booking_id', 'bookingId']) || '').trim();
+            const timestamp = String(getField(row, ['timestamp', 'created', 'date_submitted', 'submitted_at']) || '');
+            const fullName = String(getField(row, ['fullName', 'name', 'first_name', 'last_name', 'customer', 'client', 'who', 'customer_name']) || `Sheet Guest #${index + 1}`);
             const phoneNumber = String(getField(row, ['phone', 'mobile', 'cell', 'number', 'contact', 'telephone', 'phone_number']) || '');
             const email = String(getField(row, ['email', 'mail', 'email_address']) || '');
             const address = String(getField(row, ['address', 'location', 'where', 'street', 'street_address']) || '');
@@ -644,11 +778,25 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const preferredTime = parseCleanTime(getField(row, ['time', 'slot', 'hour', 'preferred_time', 'booking_time']));
             const notes = String(getField(row, ['notes', 'message', 'additional', 'anything', 'comments', 'instructions']) || '');
 
-            const id = generateDeterministicRequestId(timestamp + fullName + (phoneNumber || ''));
+            // Reconcile by deterministic unique key (e.g. row identifier, or guest + date + time)
+            // This prevents duplicate entries on re-sync while ensuring sheet updates/edits are applied!
+            const cleanName = fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+            const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
+            const cleanDate = preferredDate.replace(/[^0-9]/g, '');
+            const cleanTime = preferredTime.replace(/[^0-9]/g, '');
             
-            newRequests.push({
+            const uniqueKeySignature = rowNumber 
+              ? `row_${rowNumber}_${cleanDate}` 
+              : timestamp 
+                ? `${timestamp}_${cleanName}_${cleanDate}`
+                : `${cleanName}_${cleanPhone || cleanDate}_${cleanTime || '0900'}`;
+
+            const id = `sheet_${generateDeterministicRequestId(uniqueKeySignature)}`;
+            
+            sheetRecords.push({
               id,
-              timestamp,
+              source: 'google_sheet',
+              timestamp: timestamp || new Date().toISOString(),
               fullName,
               name: fullName,
               customerName: fullName,
@@ -675,35 +823,37 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             });
           });
 
-          // Save new imported requests to Firestore public_bookings collection
+          // Reconcile all parsed rows into Firestore (updating existing records with edits, adding new rows)
           let savedCount = 0;
-          for (const req of newRequests) {
+          for (const req of sheetRecords) {
             try {
               await setDoc(doc(db, 'public_bookings', req.id), req, { merge: true });
               savedCount++;
             } catch (err) {
-              console.warn("Could not save lead to Firestore:", err);
+              console.warn("Could not reconcile sheet row into Firestore:", err);
             }
           }
 
           if (savedCount > 0) {
-            toast.success(`Successfully synced ${savedCount} booking(s) with customer details, vehicle, package & price!`);
+            toast.success(`Successfully reconciled ${savedCount} booking(s) from Google Sheet! All edits updated.`);
           } else {
-            toast.success("No new entries found in Google Sheet.");
+            toast.success("No valid rows found in Google Sheet.");
           }
         },
         error: (error) => {
           console.error("CSV Parse Error:", error);
-          toast.error("Error parsing the Google Form data.");
+          toast.error("Error parsing the Google Sheet CSV data.");
         }
       });
     } catch (error) {
-      console.error("Sync Error:", error);
-      toast.error("Failed to sync from Google Forms. Please ensure you copied the 'Published to the web (CSV)' URL correctly.");
+      console.error("Sheet Sync Error:", error);
+      toast.error("Failed to sync from Google Sheet. Please check the published CSV link.");
     } finally {
       setIsSyncing(false);
     }
   };
+
+  const syncFromGoogleForm = syncSheetBookings;
 
   const addBooking = async (data: Omit<Booking, 'id' | 'createdAt'>) => {
     const newId = generateId('bkg');
@@ -835,6 +985,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSheetCsvUrl,
       syncFromGoogleForm,
       syncFromFirestore,
+      syncWebsiteBookings,
+      syncSheetBookings,
       isSyncing,
       firestoreConnected,
       firestoreDatabaseId: FIRESTORE_DATABASE_ID,

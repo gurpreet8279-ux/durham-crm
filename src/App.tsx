@@ -8,6 +8,7 @@ import Manifest from './components/Manifest';
 import AdminDashboard from './components/AdminDashboard';
 import Reports from './components/Reports';
 import AuthWrapper from './components/AuthWrapper';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useCRM, CRMProvider } from './store/useCRM';
 import { DialogProvider } from './components/DialogProvider';
 
@@ -154,13 +155,15 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AuthWrapper>
-      <DialogProvider>
-        <CRMProvider>
-          <MainApp />
-          <Toaster position="bottom-right" />
-        </CRMProvider>
-      </DialogProvider>
-    </AuthWrapper>
+    <ErrorBoundary>
+      <AuthWrapper>
+        <DialogProvider>
+          <CRMProvider>
+            <MainApp />
+            <Toaster position="bottom-right" />
+          </CRMProvider>
+        </DialogProvider>
+      </AuthWrapper>
+    </ErrorBoundary>
   );
 }

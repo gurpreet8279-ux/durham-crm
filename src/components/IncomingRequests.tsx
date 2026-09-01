@@ -66,8 +66,10 @@ export default function IncomingRequests() {
   };
 
   const handleClearAll = async () => {
-    if (!(await confirm('Clear All Pending Requests', 'Are you sure you want to clear all previous cached requests? New online bookings will continue to arrive automatically.'))) return;
-    clearIncomingRequests();
+    if (!(await confirm('Clear All Pending Requests', 'Are you sure you want to dismiss all pending online booking requests? They will be archived and removed from this inbox.'))) return;
+    setRefreshing(true);
+    await clearIncomingRequests();
+    setRefreshing(false);
   };
 
   const handleRefresh = async () => {

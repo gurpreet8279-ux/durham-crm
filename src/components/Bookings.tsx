@@ -581,7 +581,7 @@ export default function Bookings() {
 
           {sheetCsvUrl && (
             <button
-              onClick={syncSheetBookings}
+              onClick={() => syncSheetBookings(false)}
               disabled={isSyncing}
               title="Fetch and reconcile offline / manual bookings from your Google Sheet CSV"
               className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"

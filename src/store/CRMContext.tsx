@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { Customer, Booking, Vehicle, IncomingRequest } from '../types';
 import Papa from 'papaparse';
 import toast from 'react-hot-toast';
@@ -52,7 +52,7 @@ interface CRMContextType {
   deleteVehicle: (id: string) => Promise<void>;
   incomingRequests: IncomingRequest[];
   updateIncomingRequest: (id: string, status: string) => Promise<void>;
-  clearIncomingRequests: () => void;
+  clearIncomingRequests: () => Promise<void>;
   refreshRequests: () => Promise<void>;
   sheetCsvUrl: string;
   setSheetCsvUrl: (url: string) => Promise<void>;
@@ -385,6 +385,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sheetCsvUrlRef.current = sheetCsvUrl;
   }, [sheetCsvUrl]);
 
+  const publicBookingsMapRef = useRef<Map<string, any>>(new Map());
+  const firestoreCustomersListRef = useRef<Customer[]>([]);
+
   const dismissPhoneNotification = (id: string) => {
     setActivePhoneNotifications(prev => prev.filter(n => n.id !== id));
   };
@@ -440,237 +443,201 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  // 4. Real-time Firestore Listeners: strictly listening to 'public_bookings' and 'customers'
-  useEffect(() => {
-    // Map to hold raw public_bookings and separate bookings
-    let publicBookingsMap = new Map<string, any>();
-    let manualBookingsMap = new Map<string, any>();
-    let firestoreCustomersList: Customer[] = [];
+  const recomputeAll = useCallback(() => {
+    setFirestoreConnected(true);
 
-    const recomputeAll = () => {
-      setFirestoreConnected(true);
+    const allLeads: IncomingRequest[] = [];
+    const unifiedBookings: Booking[] = [];
+    const autoCustomersMap = new Map<string, Customer>();
 
-      const allLeads: IncomingRequest[] = [];
-      const unifiedBookings: Booking[] = [];
-      const autoCustomersMap = new Map<string, Customer>();
-
-      // Populate already registered customer documents
-      firestoreCustomersList.forEach(c => {
-        const cleanedCust = {
-          ...c,
-          fullName: cleanRepeatedWords(c.fullName)
-        };
-        autoCustomersMap.set(c.id, cleanedCust);
-        if (c.phoneNumber) autoCustomersMap.set(c.phoneNumber, cleanedCust);
-      });
-
-      // 1. Process public_bookings collection documents
-      publicBookingsMap.forEach((data, docId) => {
-        const lead = parseLeadDoc(docId, data);
-        if (lead.status === 'Pending') {
-          allLeads.push(lead);
-        }
-
-        // Auto-synthesize customer profile if not already present
-        const custName = lead.fullName || 'Online Customer';
-        const custPhone = lead.phoneNumber || '';
-        const custEmail = lead.email || '';
-        const custAddress = lead.address || '';
-        const custCity = lead.city || '';
-        const custVehicle = lead.vehicleMakeModel || '';
-        const custId = data.customerId || (custPhone ? `cus_${custPhone.replace(/[^0-9]/g, '')}` : `cus_${docId}`);
-
-        if (!autoCustomersMap.has(custId)) {
-          const autoCust: Customer = {
-            id: custId,
-            fullName: custName,
-            phoneNumber: custPhone,
-            email: custEmail,
-            address: custAddress,
-            city: custCity,
-            vehicles: custVehicle ? [custVehicle] : [],
-            notes: lead.notes || '',
-            createdAt: lead.timestamp,
-            lastServiceDate: lead.preferredDate || ''
-          };
-          autoCustomersMap.set(custId, autoCust);
-          if (custPhone) autoCustomersMap.set(custPhone, autoCust);
-        } else {
-          // If customer exists, append vehicle if new
-          const existingCust = autoCustomersMap.get(custId)!;
-          if (custVehicle && existingCust.vehicles && !existingCust.vehicles.includes(custVehicle)) {
-            existingCust.vehicles.push(custVehicle);
-          }
-        }
-
-        // Add to calendar and bookings if not dismissed
-        if (data.status !== 'Dismissed') {
-          const dateStr = lead.preferredDate;
-          const timeStr = lead.preferredTime || '09:00';
-          const vehicle = custVehicle || 'Customer Vehicle';
-          const service = lead.serviceRequested || 'Detailing Service';
-          const notes = lead.notes || '';
-          const rawStatus = data.status || 'Pending';
-          const status = (rawStatus === 'Approved' ? 'Confirmed' : rawStatus) as any;
-          const price = lead.price !== undefined ? lead.price : parseCleanPrice(getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice', 'total', 'fee']), service);
-          const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
-          const duration = isNaN(rawDuration) ? 120 : rawDuration;
-          const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
-          const createdAt = lead.timestamp;
-
-          unifiedBookings.push({
-            id: docId,
-            customerId: custId,
-            vehicleId: data.vehicleId || '',
-            vehicle,
-            date: dateStr,
-            time: timeStr,
-            duration,
-            service,
-            price,
-            paymentStatus,
-            status,
-            notes,
-            createdAt,
-            calendarEventId: data.calendarEventId || ''
-          });
-        }
-      });
-
-      // 2. Process manual bookings collection documents (if any exist)
-      manualBookingsMap.forEach((data, docId) => {
-        if (!publicBookingsMap.has(docId)) {
-          const dateStr = parseCleanDate(getField(data, ['date', 'preferredDate', 'bookingDate', 'appointmentDate']));
-          const timeStr = parseCleanTime(getField(data, ['time', 'preferredTime', 'bookingTime', 'appointmentTime']));
-          const vehicle = String(getField(data, ['vehicle', 'vehicleMakeModel', 'car', 'makeModel']) || 'Customer Vehicle');
-          const service = String(getField(data, ['service', 'package', 'serviceRequested', 'serviceType']) || 'Detailing Service');
-          const notes = String(getField(data, ['notes', 'message', 'comments']) || '');
-          const status = data.status || 'New';
-          const price = parseCleanPrice(getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice']), service);
-          const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
-          const duration = isNaN(rawDuration) ? 120 : rawDuration;
-          const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
-          const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : (data.createdAt || data.timestamp || new Date().toISOString());
-
-          unifiedBookings.push({
-            id: docId,
-            customerId: data.customerId || docId,
-            vehicleId: data.vehicleId || '',
-            vehicle,
-            date: dateStr,
-            time: timeStr,
-            duration,
-            service,
-            price,
-            paymentStatus,
-            status: status as any,
-            notes,
-            createdAt,
-            calendarEventId: data.calendarEventId || ''
-          });
-        }
-      });
-
-      // Deduplicate bookings by customer contact/identity and appointment date+time
-      const STATUS_RANK: Record<string, number> = {
-        'paid': 10,
-        'completed': 9,
-        'in progress': 8,
-        'on the way': 7,
-        'technician assigned': 6,
-        'reminder sent': 5,
-        'confirmed': 4,
-        'approved': 4,
-        'new': 3,
-        'pending': 2,
-        'rescheduled': 1,
-        'cancelled': 0,
-        'dismissed': -1
+    // Populate already registered customer documents
+    firestoreCustomersListRef.current.forEach(c => {
+      const cleanedCust = {
+        ...c,
+        fullName: cleanRepeatedWords(c.fullName)
       };
+      autoCustomersMap.set(c.id, cleanedCust);
+      if (c.phoneNumber) autoCustomersMap.set(c.phoneNumber, cleanedCust);
+    });
 
-      const deduplicatedBookingsMap = new Map<string, Booking>();
+    // 1. Process public_bookings collection documents
+    publicBookingsMapRef.current.forEach((data, docId) => {
+      const lead = parseLeadDoc(docId, data);
+      const isSheetBooking = data.source === 'google_sheet' && data.status !== 'Pending';
+      
+      // Only show truly unapproved/pending online requests in the Incoming Requests inbox
+      if (lead.status === 'Pending' && !isSheetBooking && data.status !== 'Dismissed') {
+        allLeads.push(lead);
+      }
 
-      unifiedBookings.forEach((booking) => {
-        const cust = autoCustomersMap.get(booking.customerId);
-        const rawName = cust?.fullName || (booking as any).customerName || (booking as any).fullName || '';
-        const cleanName = cleanRepeatedWords(rawName).toLowerCase().replace(/[^a-z0-9]/g, '');
-        const cleanPhone = (cust?.phoneNumber || (booking as any).phoneNumber || '').replace(/[^0-9]/g, '');
-        const cleanEmail = (cust?.email || (booking as any).email || '').toLowerCase().trim();
+      // Auto-synthesize customer profile if not already present
+      const custName = lead.fullName || 'Online Customer';
+      const custPhone = lead.phoneNumber || '';
+      const custEmail = lead.email || '';
+      const custAddress = lead.address || '';
+      const custCity = lead.city || '';
+      const custVehicle = lead.vehicleMakeModel || '';
+      const custId = data.customerId || (custPhone ? `cus_${custPhone.replace(/[^0-9]/g, '')}` : `cus_${docId}`);
 
-        // Customer contact key
-        const contactKey = cleanPhone || cleanEmail || cleanName || booking.customerId;
-        const dateKey = (booking.date || 'no_date').trim();
-        const timeKey = (booking.time || '09:00').trim().replace(/[^0-9]/g, '');
-
-        const appointmentKey = `${contactKey}_${dateKey}_${timeKey}`;
-
-        if (!deduplicatedBookingsMap.has(appointmentKey)) {
-          deduplicatedBookingsMap.set(appointmentKey, booking);
-        } else {
-          const existing = deduplicatedBookingsMap.get(appointmentKey)!;
-          const currentRank = STATUS_RANK[String(booking.status || '').toLowerCase()] ?? 2;
-          const existingRank = STATUS_RANK[String(existing.status || '').toLowerCase()] ?? 2;
-
-          if (currentRank > existingRank) {
-            deduplicatedBookingsMap.set(appointmentKey, {
-              ...booking,
-              notes: booking.notes || existing.notes,
-              vehicle: (booking.vehicle && booking.vehicle !== 'Customer Vehicle') ? booking.vehicle : existing.vehicle,
-              price: (booking.price && booking.price > 0) ? booking.price : existing.price
-            });
-          } else {
-            if (!existing.notes && booking.notes) existing.notes = booking.notes;
-            if (existing.vehicle === 'Customer Vehicle' && booking.vehicle && booking.vehicle !== 'Customer Vehicle') {
-              existing.vehicle = booking.vehicle;
-            }
-            if ((!existing.price || existing.price === 0) && booking.price > 0) {
-              existing.price = booking.price;
-            }
-          }
+      if (!autoCustomersMap.has(custId)) {
+        const autoCust: Customer = {
+          id: custId,
+          fullName: custName,
+          phoneNumber: custPhone,
+          email: custEmail,
+          address: custAddress,
+          city: custCity,
+          vehicles: custVehicle ? [custVehicle] : [],
+          notes: lead.notes || '',
+          createdAt: lead.timestamp,
+          lastServiceDate: lead.preferredDate || ''
+        };
+        autoCustomersMap.set(custId, autoCust);
+        if (custPhone) autoCustomersMap.set(custPhone, autoCust);
+      } else {
+        // If customer exists, append vehicle if new
+        const existingCust = autoCustomersMap.get(custId)!;
+        if (custVehicle && existingCust.vehicles && !existingCust.vehicles.includes(custVehicle)) {
+          existingCust.vehicles.push(custVehicle);
         }
-      });
+      }
 
-      // Deduplicate leads by contact and requested date+time
-      const deduplicatedLeadsMap = new Map<string, IncomingRequest>();
-      allLeads.forEach((lead) => {
-        const cleanName = cleanRepeatedWords(lead.fullName).toLowerCase().replace(/[^a-z0-9]/g, '');
-        const cleanPhone = (lead.phoneNumber || '').replace(/[^0-9]/g, '');
-        const cleanEmail = (lead.email || '').toLowerCase().trim();
-        const contactKey = cleanPhone || cleanEmail || cleanName || lead.id;
-        const dateKey = (lead.preferredDate || 'no_date').trim();
-        const timeKey = (lead.preferredTime || '09:00').trim().replace(/[^0-9]/g, '');
+      // Add to calendar and bookings if not dismissed
+      if (data.status !== 'Dismissed') {
+        const dateStr = lead.preferredDate;
+        const timeStr = lead.preferredTime || '09:00';
+        const vehicle = custVehicle || 'Customer Vehicle';
+        const service = lead.serviceRequested || 'Detailing Service';
+        const notes = lead.notes || '';
+        const rawStatus = data.status || (data.source === 'google_sheet' ? 'Confirmed' : 'Pending');
+        const status = (rawStatus === 'Approved' ? 'Confirmed' : rawStatus) as any;
+        const price = lead.price !== undefined ? lead.price : parseCleanPrice(getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice', 'total', 'fee']), service);
+        const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
+        const duration = isNaN(rawDuration) ? 120 : rawDuration;
+        const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
+        const createdAt = lead.timestamp;
 
-        const leadKey = `${contactKey}_${dateKey}_${timeKey}`;
+        unifiedBookings.push({
+          id: docId,
+          customerId: custId,
+          vehicleId: data.vehicleId || '',
+          vehicle,
+          date: dateStr,
+          time: timeStr,
+          duration,
+          service,
+          price,
+          paymentStatus,
+          status,
+          notes,
+          createdAt,
+          calendarEventId: data.calendarEventId || ''
+        });
+      }
+    });
 
-        if (!deduplicatedLeadsMap.has(leadKey)) {
-          deduplicatedLeadsMap.set(leadKey, lead);
-        } else {
-          const existing = deduplicatedLeadsMap.get(leadKey)!;
-          if ((!existing.notes && lead.notes) || (!existing.email && lead.email)) {
-            deduplicatedLeadsMap.set(leadKey, {
-              ...existing,
-              notes: lead.notes || existing.notes,
-              email: lead.email || existing.email,
-              vehicleMakeModel: lead.vehicleMakeModel || existing.vehicleMakeModel
-            });
-          }
-        }
-      });
-
-      const finalBookings = Array.from(deduplicatedBookingsMap.values());
-      const finalLeads = Array.from(deduplicatedLeadsMap.values());
-
-      // Update states
-      setIncomingRequests(finalLeads);
-      setBookings(finalBookings);
-
-      // Deduplicate unique customer objects by ID
-      const uniqueCustomers = Array.from(
-        new Map(Array.from(autoCustomersMap.values()).map(c => [c.id, c])).values()
-      );
-      setCustomers(uniqueCustomers);
+    // Deduplicate bookings by customer contact/identity and appointment date+time
+    const STATUS_RANK: Record<string, number> = {
+      'paid': 10,
+      'completed': 9,
+      'in progress': 8,
+      'on the way': 7,
+      'technician assigned': 6,
+      'reminder sent': 5,
+      'confirmed': 4,
+      'approved': 4,
+      'new': 3,
+      'pending': 2,
+      'rescheduled': 1,
+      'cancelled': 0,
+      'dismissed': -1
     };
 
+    const deduplicatedBookingsMap = new Map<string, Booking>();
+
+    unifiedBookings.forEach((booking) => {
+      const cust = autoCustomersMap.get(booking.customerId);
+      const rawName = cust?.fullName || (booking as any).customerName || (booking as any).fullName || '';
+      const cleanName = cleanRepeatedWords(rawName).toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanPhone = (cust?.phoneNumber || (booking as any).phoneNumber || '').replace(/[^0-9]/g, '');
+      const cleanEmail = (cust?.email || (booking as any).email || '').toLowerCase().trim();
+
+      // Customer contact key
+      const contactKey = cleanPhone || cleanEmail || cleanName || booking.customerId;
+      const dateKey = (booking.date || 'no_date').trim();
+      const timeKey = (booking.time || '09:00').trim().replace(/[^0-9]/g, '');
+
+      const appointmentKey = `${contactKey}_${dateKey}_${timeKey}`;
+
+      if (!deduplicatedBookingsMap.has(appointmentKey)) {
+        deduplicatedBookingsMap.set(appointmentKey, booking);
+      } else {
+        const existing = deduplicatedBookingsMap.get(appointmentKey)!;
+        const currentRank = STATUS_RANK[String(booking.status || '').toLowerCase()] ?? 2;
+        const existingRank = STATUS_RANK[String(existing.status || '').toLowerCase()] ?? 2;
+
+        if (currentRank > existingRank) {
+          deduplicatedBookingsMap.set(appointmentKey, {
+            ...booking,
+            notes: booking.notes || existing.notes,
+            vehicle: (booking.vehicle && booking.vehicle !== 'Customer Vehicle') ? booking.vehicle : existing.vehicle,
+            price: (booking.price && booking.price > 0) ? booking.price : existing.price
+          });
+        } else {
+          if (!existing.notes && booking.notes) existing.notes = booking.notes;
+          if (existing.vehicle === 'Customer Vehicle' && booking.vehicle && booking.vehicle !== 'Customer Vehicle') {
+            existing.vehicle = booking.vehicle;
+          }
+          if ((!existing.price || existing.price === 0) && booking.price > 0) {
+            existing.price = booking.price;
+          }
+        }
+      }
+    });
+
+    // Deduplicate leads by contact and requested date+time
+    const deduplicatedLeadsMap = new Map<string, IncomingRequest>();
+    allLeads.forEach((lead) => {
+      const cleanName = cleanRepeatedWords(lead.fullName).toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanPhone = (lead.phoneNumber || '').replace(/[^0-9]/g, '');
+      const cleanEmail = (lead.email || '').toLowerCase().trim();
+      const contactKey = cleanPhone || cleanEmail || cleanName || lead.id;
+      const dateKey = (lead.preferredDate || 'no_date').trim();
+      const timeKey = (lead.preferredTime || '09:00').trim().replace(/[^0-9]/g, '');
+
+      const leadKey = `${contactKey}_${dateKey}_${timeKey}`;
+
+      if (!deduplicatedLeadsMap.has(leadKey)) {
+        deduplicatedLeadsMap.set(leadKey, lead);
+      } else {
+        const existing = deduplicatedLeadsMap.get(leadKey)!;
+        if ((!existing.notes && lead.notes) || (!existing.email && lead.email)) {
+          deduplicatedLeadsMap.set(leadKey, {
+            ...existing,
+            notes: lead.notes || existing.notes,
+            email: lead.email || existing.email,
+            vehicleMakeModel: lead.vehicleMakeModel || existing.vehicleMakeModel
+          });
+        }
+      }
+    });
+
+    const finalBookings = Array.from(deduplicatedBookingsMap.values());
+    const finalLeads = Array.from(deduplicatedLeadsMap.values());
+
+    // Update states
+    setIncomingRequests(finalLeads);
+    setBookings(finalBookings);
+
+    // Deduplicate unique customer objects by ID
+    const uniqueCustomers = Array.from(
+      new Map(Array.from(autoCustomersMap.values()).map(c => [c.id, c])).values()
+    );
+    setCustomers(uniqueCustomers);
+  }, []);
+
+  // 4. Real-time Firestore Listeners: strictly listening to 'public_bookings' and 'customers'
+  useEffect(() => {
     let isFirstLoad = true;
 
     // Real-time onSnapshot listener strictly for 'public_bookings' on live database
@@ -700,9 +667,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       isFirstLoad = false;
 
-      publicBookingsMap.clear();
+      publicBookingsMapRef.current.clear();
       snapshot.forEach(docSnap => {
-        publicBookingsMap.set(docSnap.id, docSnap.data());
+        publicBookingsMapRef.current.set(docSnap.id, docSnap.data());
       });
       recomputeAll();
     }, (err) => {
@@ -712,7 +679,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       unsubscribePublic();
     };
-  }, []);
+  }, [recomputeAll]);
 
   // Fix B: Save CSV URL to state, localStorage (offlineBookingsCsvUrl), and Firestore (settings/csvConfig)
   const setSheetCsvUrl = async (url: string) => {
@@ -741,9 +708,30 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const login = async () => {};
 
-  const clearIncomingRequests = () => {
-    setIncomingRequests([]);
-    toast.success('Cleared inbox view.');
+  const clearIncomingRequests = async () => {
+    try {
+      setIncomingRequests([]);
+      const snap = await getDocs(collection(db, 'public_bookings'));
+      const batch = writeBatch(db);
+      let count = 0;
+      snap.forEach(d => {
+        const data = d.data();
+        const rawStatus = (data.status || 'Pending').toLowerCase();
+        if (rawStatus === 'pending' || rawStatus === 'new') {
+          batch.update(d.ref, { status: 'Dismissed', updatedAt: new Date().toISOString() });
+          count++;
+        }
+      });
+      if (count > 0) {
+        await batch.commit();
+        toast.success(`Cleared and dismissed ${count} pending request(s).`);
+      } else {
+        toast.success('Cleared inbox view.');
+      }
+    } catch (err) {
+      console.warn("Could not batch clear incoming requests:", err);
+      toast.success('Cleared inbox view.');
+    }
   };
 
   // Bulk Purge Handlers to wipe old test data completely from Cloud Firestore
@@ -807,89 +795,12 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const snapPublic = await getDocs(collection(db, 'public_bookings'));
       setFirestoreConnected(true);
-
-      const allLeads: IncomingRequest[] = [];
-      const unifiedBookings: Booking[] = [];
-      const autoCustomersMap = new Map<string, Customer>();
-
-      snapPublic.docs.forEach((docSnap) => {
-        const data = docSnap.data();
-        const lead = parseLeadDoc(docSnap.id, data);
-        if (lead.status === 'Pending') {
-          allLeads.push(lead);
-        }
-
-        const custName = lead.fullName || 'Online Customer';
-        const custPhone = lead.phoneNumber || '';
-        const custEmail = lead.email || '';
-        const custAddress = lead.address || '';
-        const custCity = lead.city || '';
-        const custVehicle = lead.vehicleMakeModel || '';
-        const custId = data.customerId || (custPhone ? `cus_${custPhone.replace(/[^0-9]/g, '')}` : `cus_${docSnap.id}`);
-
-        if (!autoCustomersMap.has(custId)) {
-          const autoCust: Customer = {
-            id: custId,
-            fullName: custName,
-            phoneNumber: custPhone,
-            email: custEmail,
-            address: custAddress,
-            city: custCity,
-            vehicles: custVehicle ? [custVehicle] : [],
-            notes: lead.notes || '',
-            createdAt: lead.timestamp,
-            lastServiceDate: lead.preferredDate || ''
-          };
-          autoCustomersMap.set(custId, autoCust);
-          if (custPhone) autoCustomersMap.set(custPhone, autoCust);
-        } else {
-          const existingCust = autoCustomersMap.get(custId)!;
-          if (custVehicle && existingCust.vehicles && !existingCust.vehicles.includes(custVehicle)) {
-            existingCust.vehicles.push(custVehicle);
-          }
-        }
-
-        if (data.status !== 'Dismissed') {
-          const dateStr = lead.preferredDate;
-          const timeStr = lead.preferredTime || '09:00';
-          const vehicle = custVehicle || 'Customer Vehicle';
-          const service = lead.serviceRequested || 'Detailing Service';
-          const notes = lead.notes || '';
-          const rawStatus = data.status || 'Pending';
-          const status = (rawStatus === 'Approved' ? 'Confirmed' : rawStatus) as any;
-          const price = lead.price !== undefined ? lead.price : parseCleanPrice(getField(data, ['price', 'totalPrice', 'amount', 'cost', 'packagePrice', 'total', 'fee']), service);
-          const rawDuration = typeof data.duration === 'number' ? data.duration : parseInt(data.duration || 120, 10);
-          const duration = isNaN(rawDuration) ? 120 : rawDuration;
-          const paymentStatus = data.paymentStatus === 'Paid' ? 'Paid' : 'Unpaid';
-          const createdAt = lead.timestamp;
-
-          unifiedBookings.push({
-            id: docSnap.id,
-            customerId: custId,
-            vehicleId: data.vehicleId || '',
-            vehicle,
-            date: dateStr,
-            time: timeStr,
-            duration,
-            service,
-            price,
-            paymentStatus,
-            status,
-            notes,
-            createdAt,
-            calendarEventId: data.calendarEventId || ''
-          });
-        }
+      publicBookingsMapRef.current.clear();
+      snapPublic.forEach(docSnap => {
+        publicBookingsMapRef.current.set(docSnap.id, docSnap.data());
       });
-
-      setIncomingRequests(allLeads);
-      setBookings(unifiedBookings);
-      const uniqueCustomers = Array.from(
-        new Map(Array.from(autoCustomersMap.values()).map(c => [c.id, c])).values()
-      );
-      setCustomers(uniqueCustomers);
-
-      toast.success(`Synced ${unifiedBookings.length} website booking(s) from Firestore!`);
+      recomputeAll();
+      toast.success(`Synced ${publicBookingsMapRef.current.size} record(s) from Firestore!`);
     } catch (error) {
       console.error("Website bookings sync error:", error);
       toast.error("Failed to sync website bookings from Firestore.");
@@ -948,19 +859,18 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const preferredTime = parseCleanTime(getField(row, ['time', 'slot', 'hour', 'preferred_time', 'booking_time']));
             const notes = String(getField(row, ['notes', 'message', 'additional', 'anything', 'comments', 'instructions']) || '');
 
-            const cleanName = fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+            const cleanName = cleanRepeatedWords(fullName).toLowerCase().trim().replace(/[^a-z0-9]/g, '');
             const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
             const cleanDate = preferredDate.replace(/[^0-9]/g, '');
             const cleanTime = preferredTime.replace(/[^0-9]/g, '');
             
             const uniqueKeySignature = rowNumber 
-              ? `row_${rowNumber}_${cleanDate}` 
-              : timestamp 
-                ? `${timestamp}_${cleanName}_${cleanDate}`
-                : `${cleanName}_${cleanPhone || cleanDate}_${cleanTime || '0900'}`;
+              ? `row_${rowNumber}_${cleanDate || 'nodate'}` 
+              : `${cleanPhone || cleanName}_${cleanDate || 'nodate'}_${cleanTime || '0900'}`;
 
             const id = `sheet_${generateDeterministicRequestId(uniqueKeySignature)}`;
-            const explicitSheetStatus = getField(row, ['status', 'booking_status', 'state', 'stage']);
+            const rawExplicitStatus = String(getField(row, ['status', 'booking_status', 'state', 'stage']) || '').trim();
+            const explicitSheetStatus = rawExplicitStatus ? (rawExplicitStatus.toLowerCase() === 'approved' ? 'Confirmed' : rawExplicitStatus) : null;
 
             sheetRecords.push({
               id,
@@ -986,8 +896,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               time: preferredTime,
               preferredTime,
               notes,
-              explicitSheetStatus: explicitSheetStatus || null,
-              isLead: true,
+              explicitSheetStatus,
+              isLead: explicitSheetStatus?.toLowerCase() === 'pending' || explicitSheetStatus?.toLowerCase() === 'new',
               updatedAt: new Date().toISOString()
             });
           });
@@ -997,7 +907,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return;
           }
 
-          // Fetch existing public_bookings to preserve current CRM statuses (e.g. Confirmed, In Progress, Completed)
+          // Fetch existing public_bookings to preserve current CRM statuses (e.g. Confirmed, In Progress, Completed, Dismissed)
           const existingDocsSnap = await getDocs(collection(db, 'public_bookings'));
           const existingStatusMap = new Map<string, string>();
           existingDocsSnap.forEach(d => {
@@ -1015,11 +925,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
             chunk.forEach(req => {
               const existingStatus = existingStatusMap.get(req.id);
-              const currentStatus = req.explicitSheetStatus || existingStatus || 'Pending';
+              // Default to Confirmed so Google Sheet appointments land directly on schedule & never flood online leads
+              const currentStatus = req.explicitSheetStatus || existingStatus || 'Confirmed';
               const { explicitSheetStatus, ...docData } = req;
               const recordToSave = {
                 ...docData,
-                status: currentStatus
+                status: currentStatus,
+                isLead: currentStatus.toLowerCase() === 'pending'
               };
               batch.set(doc(db, 'public_bookings', req.id), recordToSave, { merge: true });
             });

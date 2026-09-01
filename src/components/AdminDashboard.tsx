@@ -238,7 +238,7 @@ export default function AdminDashboard() {
               <p className="text-xs text-slate-500">Reconcile all offline rows into CRM (updates modified rows, inserts new ones).</p>
             </div>
             <button
-              onClick={syncSheetBookings}
+              onClick={() => syncSheetBookings(false)}
               disabled={isSyncing}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >

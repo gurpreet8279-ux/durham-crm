@@ -649,19 +649,24 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const data = change.doc.data();
             const rawStatus = (data.status || 'Pending').toLowerCase();
             const isPending = rawStatus === 'pending' || rawStatus === 'new';
-            const parsedLead = parseLeadDoc(change.doc.id, data);
+            const isSheetBooking = data.source === 'google_sheet';
             
-            // Add to Phone Screen Notification banner
-            setActivePhoneNotifications(prev => {
-              const exists = prev.some(item => item.id === parsedLead.id);
-              if (!exists) {
-                return [parsedLead, ...prev];
-              }
-              return prev;
-            });
+            // Only trigger alert chimes and banner for genuine pending online customer bookings
+            if (isPending && !isSheetBooking && data.status !== 'Dismissed' && data.status !== 'Approved') {
+              const parsedLead = parseLeadDoc(change.doc.id, data);
+              
+              // Add to Phone Screen Notification banner
+              setActivePhoneNotifications(prev => {
+                const exists = prev.some(item => item.id === parsedLead.id);
+                if (!exists) {
+                  return [parsedLead, ...prev];
+                }
+                return prev;
+              });
 
-            // Play authentic phone push notification chime & haptics
-            playPhoneNotificationSound();
+              // Play authentic phone push notification chime & haptics
+              playPhoneNotificationSound();
+            }
           }
         });
       }

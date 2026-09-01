@@ -20,6 +20,7 @@ export default function Bookings() {
     addCustomer, 
     updateCustomer, 
     purgeAllBookings, 
+    cleanDuplicateBookings,
     syncSheetBookings,
     syncWebsiteBookings,
     isSyncing, 
@@ -29,6 +30,7 @@ export default function Bookings() {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
   
   const [isNewCustomer, setIsNewCustomer] = useState(false);
   const { confirm } = useDialog();
@@ -588,6 +590,20 @@ export default function Bookings() {
               {isSyncing ? 'Syncing CSV...' : 'Sync Sheet Bookings'}
             </button>
           )}
+
+          <button
+            onClick={async () => {
+              setIsCleaning(true);
+              await cleanDuplicateBookings();
+              setIsCleaning(false);
+            }}
+            disabled={isCleaning || isSyncing}
+            title="Scan database for identical duplicate bookings and remove them"
+            className="px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={15} className={isCleaning ? 'animate-spin text-amber-600' : 'text-amber-600'} />
+            {isCleaning ? 'Cleaning...' : 'Clean Duplicates'}
+          </button>
 
           {bookings.length > 0 && (
             <button 

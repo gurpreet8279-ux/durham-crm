@@ -16,6 +16,7 @@ export default function AdminDashboard() {
     purgeAllBookings,
     purgeAllCustomers,
     purgeAllIncomingLeads,
+    cleanDuplicateBookings,
     isSyncing, 
     firestoreConnected, 
     firestoreDatabaseId 
@@ -23,6 +24,7 @@ export default function AdminDashboard() {
   const [localUrl, setLocalUrl] = useState(sheetCsvUrl);
   const [saved, setSaved] = useState(false);
   const [purging, setPurging] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
   const { confirm } = useDialog();
 
   useEffect(() => {
@@ -126,7 +128,25 @@ export default function AdminDashboard() {
           If you have old test or imported records in Firestore that you want to wipe so your CRM starts fresh:
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-col justify-between">
+            <div>
+              <p className="font-bold text-xs text-slate-900">Deduplicate Database</p>
+              <p className="text-xs text-slate-500 mt-0.5">Finds & merges duplicate bookings</p>
+            </div>
+            <button
+              onClick={async () => {
+                setCleaning(true);
+                await cleanDuplicateBookings();
+                setCleaning(false);
+              }}
+              disabled={cleaning || isSyncing}
+              className="mt-3 w-full py-1.5 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40"
+            >
+              <RefreshCw size={13} className={cleaning ? 'animate-spin' : ''} /> {cleaning ? 'Cleaning...' : 'Clean Duplicates'}
+            </button>
+          </div>
+
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-col justify-between">
             <div>
               <p className="font-bold text-xs text-slate-900">Bookings Collection</p>

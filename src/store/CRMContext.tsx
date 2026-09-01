@@ -60,6 +60,7 @@ interface CRMContextType {
   syncFromFirestore: () => Promise<void>;
   syncWebsiteBookings: () => Promise<void>;
   syncSheetBookings: (silent?: boolean) => Promise<void>;
+  cleanDuplicateBookings: () => Promise<void>;
   isSyncing: boolean;
   firestoreConnected: boolean;
   firestoreDatabaseId: string;
@@ -570,9 +571,98 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
 
+      // Deduplicate bookings by customer contact/identity and appointment date+time
+      const STATUS_RANK: Record<string, number> = {
+        'paid': 10,
+        'completed': 9,
+        'in progress': 8,
+        'on the way': 7,
+        'technician assigned': 6,
+        'reminder sent': 5,
+        'confirmed': 4,
+        'approved': 4,
+        'new': 3,
+        'pending': 2,
+        'rescheduled': 1,
+        'cancelled': 0,
+        'dismissed': -1
+      };
+
+      const deduplicatedBookingsMap = new Map<string, Booking>();
+
+      unifiedBookings.forEach((booking) => {
+        const cust = autoCustomersMap.get(booking.customerId);
+        const rawName = cust?.fullName || (booking as any).customerName || (booking as any).fullName || '';
+        const cleanName = cleanRepeatedWords(rawName).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanPhone = (cust?.phoneNumber || (booking as any).phoneNumber || '').replace(/[^0-9]/g, '');
+        const cleanEmail = (cust?.email || (booking as any).email || '').toLowerCase().trim();
+
+        // Customer contact key
+        const contactKey = cleanPhone || cleanEmail || cleanName || booking.customerId;
+        const dateKey = (booking.date || 'no_date').trim();
+        const timeKey = (booking.time || '09:00').trim().replace(/[^0-9]/g, '');
+
+        const appointmentKey = `${contactKey}_${dateKey}_${timeKey}`;
+
+        if (!deduplicatedBookingsMap.has(appointmentKey)) {
+          deduplicatedBookingsMap.set(appointmentKey, booking);
+        } else {
+          const existing = deduplicatedBookingsMap.get(appointmentKey)!;
+          const currentRank = STATUS_RANK[String(booking.status || '').toLowerCase()] ?? 2;
+          const existingRank = STATUS_RANK[String(existing.status || '').toLowerCase()] ?? 2;
+
+          if (currentRank > existingRank) {
+            deduplicatedBookingsMap.set(appointmentKey, {
+              ...booking,
+              notes: booking.notes || existing.notes,
+              vehicle: (booking.vehicle && booking.vehicle !== 'Customer Vehicle') ? booking.vehicle : existing.vehicle,
+              price: (booking.price && booking.price > 0) ? booking.price : existing.price
+            });
+          } else {
+            if (!existing.notes && booking.notes) existing.notes = booking.notes;
+            if (existing.vehicle === 'Customer Vehicle' && booking.vehicle && booking.vehicle !== 'Customer Vehicle') {
+              existing.vehicle = booking.vehicle;
+            }
+            if ((!existing.price || existing.price === 0) && booking.price > 0) {
+              existing.price = booking.price;
+            }
+          }
+        }
+      });
+
+      // Deduplicate leads by contact and requested date+time
+      const deduplicatedLeadsMap = new Map<string, IncomingRequest>();
+      allLeads.forEach((lead) => {
+        const cleanName = cleanRepeatedWords(lead.fullName).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanPhone = (lead.phoneNumber || '').replace(/[^0-9]/g, '');
+        const cleanEmail = (lead.email || '').toLowerCase().trim();
+        const contactKey = cleanPhone || cleanEmail || cleanName || lead.id;
+        const dateKey = (lead.preferredDate || 'no_date').trim();
+        const timeKey = (lead.preferredTime || '09:00').trim().replace(/[^0-9]/g, '');
+
+        const leadKey = `${contactKey}_${dateKey}_${timeKey}`;
+
+        if (!deduplicatedLeadsMap.has(leadKey)) {
+          deduplicatedLeadsMap.set(leadKey, lead);
+        } else {
+          const existing = deduplicatedLeadsMap.get(leadKey)!;
+          if ((!existing.notes && lead.notes) || (!existing.email && lead.email)) {
+            deduplicatedLeadsMap.set(leadKey, {
+              ...existing,
+              notes: lead.notes || existing.notes,
+              email: lead.email || existing.email,
+              vehicleMakeModel: lead.vehicleMakeModel || existing.vehicleMakeModel
+            });
+          }
+        }
+      });
+
+      const finalBookings = Array.from(deduplicatedBookingsMap.values());
+      const finalLeads = Array.from(deduplicatedLeadsMap.values());
+
       // Update states
-      setIncomingRequests(allLeads);
-      setBookings(unifiedBookings);
+      setIncomingRequests(finalLeads);
+      setBookings(finalBookings);
 
       // Deduplicate unique customer objects by ID
       const uniqueCustomers = Array.from(
@@ -1077,6 +1167,84 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await syncFromFirestore();
   };
 
+  const cleanDuplicateBookings = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'public_bookings'));
+      const groups = new Map<string, { id: string; data: any; rank: number; createdAt: string }[]>();
+
+      const STATUS_RANK: Record<string, number> = {
+        'paid': 10,
+        'completed': 9,
+        'in progress': 8,
+        'on the way': 7,
+        'technician assigned': 6,
+        'reminder sent': 5,
+        'confirmed': 4,
+        'approved': 4,
+        'new': 3,
+        'pending': 2,
+        'rescheduled': 1,
+        'cancelled': 0,
+        'dismissed': -1
+      };
+
+      snap.forEach(d => {
+        const data = d.data();
+        const rawName = extractFullName(data) || data.fullName || data.name || data.customerName || '';
+        const cleanName = cleanRepeatedWords(rawName).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanPhone = String(getField(data, ['phoneNumber', 'phone', 'mobile', 'cell', 'telephone']) || '').replace(/[^0-9]/g, '');
+        const cleanEmail = String(getField(data, ['email', 'mail']) || '').toLowerCase().trim();
+        const contactSig = cleanPhone || cleanEmail || cleanName;
+        
+        const dateSig = String(getField(data, ['date', 'preferredDate', 'bookingDate']) || '').trim();
+        const timeSig = String(getField(data, ['time', 'preferredTime', 'bookingTime']) || '09:00').trim().replace(/[^0-9]/g, '');
+        
+        if (!contactSig) return;
+        const groupKey = `${contactSig}_${dateSig}_${timeSig}`;
+        
+        const rawStatus = (data.status || 'Pending').toLowerCase();
+        const rank = STATUS_RANK[rawStatus] ?? 2;
+        const createdAt = data.createdAt || data.timestamp || '';
+        
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, []);
+        }
+        groups.get(groupKey)!.push({ id: d.id, data, rank, createdAt });
+      });
+
+      let deletedCount = 0;
+      const batch = writeBatch(db);
+      let batchOperations = 0;
+
+      groups.forEach((items) => {
+        if (items.length > 1) {
+          // Sort items so the best/highest-priority booking is first
+          items.sort((a, b) => {
+            if (b.rank !== a.rank) return b.rank - a.rank;
+            return (b.createdAt || '').localeCompare(a.createdAt || '');
+          });
+
+          // Keep items[0], delete redundant duplicates items[1..n]
+          for (let i = 1; i < items.length; i++) {
+            batch.delete(doc(db, 'public_bookings', items[i].id));
+            deletedCount++;
+            batchOperations++;
+          }
+        }
+      });
+
+      if (batchOperations > 0) {
+        await batch.commit();
+        toast.success(`Cleaned up ${deletedCount} duplicate booking(s) from database!`);
+      } else {
+        toast.success("Database is clean. No duplicates found.");
+      }
+    } catch (err) {
+      console.error("Error cleaning duplicates:", err);
+      toast.error("Failed to clean duplicates from database.");
+    }
+  };
+
   return (
     <CRMContext.Provider value={{
       user,
@@ -1094,6 +1262,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       purgeAllBookings,
       purgeAllCustomers,
       purgeAllIncomingLeads,
+      cleanDuplicateBookings,
       vehicles,
       addVehicle,
       updateVehicle,

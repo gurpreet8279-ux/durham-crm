@@ -11,10 +11,11 @@ import AuthWrapper from './components/AuthWrapper';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useCRM, CRMProvider } from './store/useCRM';
 import { DialogProvider } from './components/DialogProvider';
+import { PhoneNotificationBanner } from './components/PhoneNotificationBanner';
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'manifest' | 'customers' | 'bookings' | 'reports' | 'admin'>('manifest');
-  const { incomingRequests } = useCRM();
+  const { incomingRequests, activePhoneNotifications, dismissPhoneNotification } = useCRM();
   
   // Count of pending incoming leads
   const pendingCount = incomingRequests.filter(r => r.status === 'Pending').length;
@@ -30,6 +31,15 @@ function MainApp() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* Real Phone Pop-up Push Notifications Stack */}
+      <PhoneNotificationBanner
+        requests={activePhoneNotifications}
+        onDismissNotification={dismissPhoneNotification}
+        onViewRequest={() => {
+          setActiveTab('bookings');
+        }}
+      />
+
       {/* Sidebar - Desktop Only */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col hidden md:flex">
         <div className="p-6 flex items-center justify-between">

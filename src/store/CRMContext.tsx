@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Customer, Booking, Vehicle, IncomingRequest } from '../types';
 import Papa from 'papaparse';
 import toast from 'react-hot-toast';
@@ -22,6 +22,7 @@ import {
   FIRESTORE_PROJECT_ID,
   testFirestoreConnection 
 } from '../lib/firebase';
+import { playPhoneNotificationSound } from '../lib/notificationSound';
 
 export interface User {
   id: string;
@@ -58,11 +59,13 @@ interface CRMContextType {
   syncFromGoogleForm: () => Promise<void>;
   syncFromFirestore: () => Promise<void>;
   syncWebsiteBookings: () => Promise<void>;
-  syncSheetBookings: () => Promise<void>;
+  syncSheetBookings: (silent?: boolean) => Promise<void>;
   isSyncing: boolean;
   firestoreConnected: boolean;
   firestoreDatabaseId: string;
   firestoreProjectId: string;
+  activePhoneNotifications: IncomingRequest[];
+  dismissPhoneNotification: (id: string) => void;
 }
 
 const CRMContext = createContext<CRMContextType | null>(null);
@@ -121,6 +124,51 @@ function getField(obj: any, keys: string[]): any {
   }
 
   return '';
+}
+
+/**
+ * Extract complete full name supporting single "Name", separate "First Name" + "Last Name",
+ * or nested contact fields from web bookings & google forms.
+ */
+function extractFullName(data: any, fallbackIndex?: number): string {
+  if (!data || typeof data !== 'object') return `Customer #${fallbackIndex || 1}`;
+
+  // 1. Check for dedicated first and last name fields
+  const firstName = String(getField(data, ['firstName', 'first_name', 'fname', 'first', 'givenName', 'given_name']) || '').trim();
+  const lastName = String(getField(data, ['lastName', 'last_name', 'lname', 'last', 'familyName', 'family_name', 'surname']) || '').trim();
+  if (firstName && lastName) {
+    return `${firstName} ${lastName}`;
+  }
+  if (firstName && !lastName) {
+    return firstName;
+  }
+  if (!firstName && lastName) {
+    return lastName;
+  }
+
+  // 2. Check general full name fields
+  const directFullName = String(getField(data, [
+    'fullName', 
+    'full_name', 
+    'name', 
+    'customerName', 
+    'customer_name', 
+    'clientName', 
+    'client_name', 
+    'customer', 
+    'client', 
+    'contactName', 
+    'contact_name', 
+    'who',
+    'yourName',
+    'your_name'
+  ]) || '').trim();
+
+  if (directFullName && directFullName.toLowerCase() !== 'online customer') {
+    return directFullName;
+  }
+
+  return directFullName || `Online Customer`;
 }
 
 function parseCleanPrice(val: any, serviceName?: string): number {
@@ -222,7 +270,7 @@ export function isPendingLeadStatus(rawStatus?: string): boolean {
 }
 
 function parseLeadDoc(docId: string, data: any): IncomingRequest {
-  const fullName = getField(data, ['fullName', 'name', 'customerName', 'clientName', 'customer', 'client', 'contactName', 'full_name', 'customer_name']) || 'Online Customer';
+  const fullName = extractFullName(data);
   const phone = String(getField(data, ['phoneNumber', 'phone', 'mobile', 'cell', 'contact', 'telephone', 'phone_number']) || '');
   const email = String(getField(data, ['email', 'mail', 'emailAddress', 'email_address']) || '');
   const vehicle = String(getField(data, ['vehicle', 'vehicleMakeModel', 'car', 'makeModel', 'make_model', 'vehicleType', 'model', 'vehicle_make_model']) || '');
@@ -276,6 +324,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [sheetCsvUrl, setSheetCsvUrlState] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [firestoreConnected, setFirestoreConnected] = useState(false);
+  const [activePhoneNotifications, setActivePhoneNotifications] = useState<IncomingRequest[]>([]);
+  
+  const sheetCsvUrlRef = useRef<string>('');
+  useEffect(() => {
+    sheetCsvUrlRef.current = sheetCsvUrl;
+  }, [sheetCsvUrl]);
+
+  const dismissPhoneNotification = (id: string) => {
+    setActivePhoneNotifications(prev => prev.filter(n => n.id !== id));
+  };
 
   // 1. Wipe any old localStorage cache completely on mount, but preserve offlineBookingsCsvUrl
   useEffect(() => {
@@ -477,77 +535,19 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const data = change.doc.data();
             const rawStatus = (data.status || 'Pending').toLowerCase();
             const isPending = rawStatus === 'pending' || rawStatus === 'new';
-            const clientName = data.fullName || data.name || data.customerName || data.client || 'New Customer';
-            const service = data.service || data.serviceRequested || data.package || 'Detailing Service';
+            const parsedLead = parseLeadDoc(change.doc.id, data);
             
-            // Trigger instant UI Alert & Notification Sound
-            toast.custom((t) => (
-              <div
-                className={`${
-                  t.visible ? 'animate-enter' : 'animate-leave'
-                } max-w-md w-full bg-slate-900 shadow-2xl rounded-xl pointer-events-auto flex ring-1 ring-black/5 border border-blue-500/40 p-4 text-white`}
-              >
-                <div className="flex-1 w-0">
-                  <div className="flex items-start">
-                    <div className="flex-shrink-0 pt-0.5">
-                      <span className="flex h-3 w-3 relative">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                      </span>
-                    </div>
-                    <div className="ml-3 flex-1">
-                      <p className="text-sm font-bold text-white flex items-center gap-2">
-                        🎉 New Booking Received!
-                        <span className="bg-blue-500/20 text-blue-300 border border-blue-400/30 text-[10px] px-2 py-0.5 rounded-full font-semibold">
-                          Live Auto-Added
-                        </span>
-                      </p>
-                      <p className="mt-1 text-xs text-slate-300">
-                        <strong className="text-white">{clientName}</strong> booked <strong>{service}</strong>.
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        📅 {data.date || data.preferredDate || 'Scheduled'} at {data.time || data.preferredTime || '09:00'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ), { duration: 6000 });
-
-            // Play pleasant Web Audio API notification chime
-            try {
-              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-              if (AudioCtx) {
-                const ctx = new AudioCtx();
-                const now = ctx.currentTime;
-                
-                const osc1 = ctx.createOscillator();
-                const osc2 = ctx.createOscillator();
-                const gain = ctx.createGain();
-
-                osc1.type = 'sine';
-                osc1.frequency.setValueAtTime(587.33, now); // D5
-                osc1.frequency.exponentialRampToValueAtTime(880, now + 0.15); // A5
-
-                osc2.type = 'triangle';
-                osc2.frequency.setValueAtTime(880, now + 0.15);
-                osc2.frequency.exponentialRampToValueAtTime(1174.66, now + 0.35); // D6
-
-                gain.gain.setValueAtTime(0.15, now);
-                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-
-                osc1.connect(gain);
-                osc2.connect(gain);
-                gain.connect(ctx.destination);
-
-                osc1.start(now);
-                osc1.stop(now + 0.2);
-                osc2.start(now + 0.15);
-                osc2.stop(now + 0.5);
+            // Add to Phone Screen Notification banner
+            setActivePhoneNotifications(prev => {
+              const exists = prev.some(item => item.id === parsedLead.id);
+              if (!exists) {
+                return [parsedLead, ...prev];
               }
-            } catch {
-              // audio context blocked or unsupported
-            }
+              return prev;
+            });
+
+            // Play authentic phone push notification chime & haptics
+            playPhoneNotificationSound();
           }
         });
       }
@@ -753,18 +753,21 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const syncFromFirestore = syncWebsiteBookings;
   
-  // Fix C: Isolated Sheet Bookings Sync (CSV only, full re-sync and reconciliation by unique key)
-  const syncSheetBookings = async () => {
-    if (!sheetCsvUrl) {
-      toast.error("Please enter and save your published Google Sheet CSV link in the Admin tab first.");
+  // High-Speed Isolated Sheet Bookings Sync (Optimized Batch writes & Reconcile by key)
+  const syncSheetBookings = async (silent = false) => {
+    const targetUrl = sheetCsvUrlRef.current || sheetCsvUrl;
+    if (!targetUrl) {
+      if (!silent) {
+        toast.error("Please enter and save your published Google Sheet CSV link in the Admin tab first.");
+      }
       return;
     }
     
-    setIsSyncing(true);
+    if (!silent) setIsSyncing(true);
     try {
-      const urlWithCacheBuster = sheetCsvUrl.includes('?') 
-        ? `${sheetCsvUrl}&_t=${new Date().getTime()}`
-        : `${sheetCsvUrl}?_t=${new Date().getTime()}`;
+      const urlWithCacheBuster = targetUrl.includes('?') 
+        ? `${targetUrl}&_t=${new Date().getTime()}`
+        : `${targetUrl}?_t=${new Date().getTime()}`;
         
       const response = await fetch(urlWithCacheBuster, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch CSV`);
@@ -783,7 +786,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
             const rowNumber = String(getField(row, ['#', 'row', 'row_number', 'rowNumber', 'id', 'booking_id', 'bookingId']) || '').trim();
             const timestamp = String(getField(row, ['timestamp', 'created', 'date_submitted', 'submitted_at']) || '');
-            const fullName = String(getField(row, ['fullName', 'name', 'first_name', 'last_name', 'customer', 'client', 'who', 'customer_name']) || `Sheet Guest #${index + 1}`);
+            
+            // Advanced First & Last Name extraction
+            const fullName = extractFullName(row, index + 1);
             const phoneNumber = String(getField(row, ['phone', 'mobile', 'cell', 'number', 'contact', 'telephone', 'phone_number']) || '');
             const email = String(getField(row, ['email', 'mail', 'email_address']) || '');
             const address = String(getField(row, ['address', 'location', 'where', 'street', 'street_address']) || '');
@@ -796,8 +801,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const preferredTime = parseCleanTime(getField(row, ['time', 'slot', 'hour', 'preferred_time', 'booking_time']));
             const notes = String(getField(row, ['notes', 'message', 'additional', 'anything', 'comments', 'instructions']) || '');
 
-            // Reconcile by deterministic unique key (e.g. row identifier, or guest + date + time)
-            // This prevents duplicate entries on re-sync while ensuring sheet updates/edits are applied!
             const cleanName = fullName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
             const cleanPhone = phoneNumber.replace(/[^0-9]/g, '');
             const cleanDate = preferredDate.replace(/[^0-9]/g, '');
@@ -810,8 +813,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 : `${cleanName}_${cleanPhone || cleanDate}_${cleanTime || '0900'}`;
 
             const id = `sheet_${generateDeterministicRequestId(uniqueKeySignature)}`;
-            
-            // Extract status if the sheet has a status column, otherwise default to undefined
             const explicitSheetStatus = getField(row, ['status', 'booking_status', 'state', 'stage']);
 
             sheetRecords.push({
@@ -844,6 +845,11 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             });
           });
 
+          if (sheetRecords.length === 0) {
+            if (!silent) toast.success("No rows found in Google Sheet.");
+            return;
+          }
+
           // Fetch existing public_bookings to preserve current CRM statuses (e.g. Confirmed, In Progress, Completed)
           const existingDocsSnap = await getDocs(collection(db, 'public_bookings'));
           const existingStatusMap = new Map<string, string>();
@@ -854,45 +860,64 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           });
 
-          // Reconcile all parsed rows into Firestore (updating existing records with edits, adding new rows)
-          let savedCount = 0;
-          for (const req of sheetRecords) {
-            try {
-              // Preserve status: explicit sheet column > existing CRM status > default 'Pending'
-              const currentStatus = req.explicitSheetStatus || existingStatusMap.get(req.id) || 'Pending';
+          // Perform high-speed batched writes (up to 450 records per batch)
+          const BATCH_SIZE = 450;
+          for (let i = 0; i < sheetRecords.length; i += BATCH_SIZE) {
+            const chunk = sheetRecords.slice(i, i + BATCH_SIZE);
+            const batch = writeBatch(db);
+
+            chunk.forEach(req => {
+              const existingStatus = existingStatusMap.get(req.id);
+              const currentStatus = req.explicitSheetStatus || existingStatus || 'Pending';
               const { explicitSheetStatus, ...docData } = req;
               const recordToSave = {
                 ...docData,
                 status: currentStatus
               };
+              batch.set(doc(db, 'public_bookings', req.id), recordToSave, { merge: true });
+            });
 
-              await setDoc(doc(db, 'public_bookings', req.id), recordToSave, { merge: true });
-              savedCount++;
-            } catch (err) {
-              console.warn("Could not reconcile sheet row into Firestore:", err);
-            }
+            await batch.commit();
           }
 
-          if (savedCount > 0) {
-            toast.success(`Successfully reconciled ${savedCount} booking(s) from Google Sheet! All edits updated.`);
-          } else {
-            toast.success("No valid rows found in Google Sheet.");
+          if (!silent) {
+            toast.success(`Synced ${sheetRecords.length} booking(s) from Google Sheet!`);
           }
         },
         error: (error) => {
           console.error("CSV Parse Error:", error);
-          toast.error("Error parsing the Google Sheet CSV data.");
+          if (!silent) toast.error("Error parsing Google Sheet CSV.");
         }
       });
     } catch (error) {
       console.error("Sheet Sync Error:", error);
-      toast.error("Failed to sync from Google Sheet. Please check the published CSV link.");
+      if (!silent) toast.error("Failed to sync from Google Sheet. Check link.");
     } finally {
-      setIsSyncing(false);
+      if (!silent) setIsSyncing(false);
     }
   };
 
-  const syncFromGoogleForm = syncSheetBookings;
+  // Background Auto-Sync every 45 seconds for Google Sheet
+  useEffect(() => {
+    if (!sheetCsvUrl) return;
+
+    // Initial background sync after 2.5 seconds
+    const initialTimer = setTimeout(() => {
+      syncSheetBookings(true);
+    }, 2500);
+
+    // Periodic auto-sync interval
+    const interval = setInterval(() => {
+      syncSheetBookings(true);
+    }, 45000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [sheetCsvUrl]);
+
+  const syncFromGoogleForm = () => syncSheetBookings(false);
 
   const addBooking = async (data: Omit<Booking, 'id' | 'createdAt'>) => {
     const newId = generateId('bkg');
@@ -1029,7 +1054,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isSyncing,
       firestoreConnected,
       firestoreDatabaseId: FIRESTORE_DATABASE_ID,
-      firestoreProjectId: FIRESTORE_PROJECT_ID
+      firestoreProjectId: FIRESTORE_PROJECT_ID,
+      activePhoneNotifications,
+      dismissPhoneNotification
     }}>
       {children}
     </CRMContext.Provider>

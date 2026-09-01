@@ -102,14 +102,14 @@ function getField(obj: any, keys: string[]): any {
   if (!obj || typeof obj !== 'object') return '';
   const objKeys = Object.keys(obj);
   
-  // 1. Direct match
+  // 1. Direct exact key match
   for (const k of keys) {
-    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') {
+    if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') {
       return obj[k];
     }
   }
 
-  // 2. Case-insensitive / normalized match
+  // 2. Case-insensitive / normalized EXACT key match (e.g. 'First Name' or 'first_name' strictly matches 'firstname')
   const normalizedObjKeys = objKeys.map(k => ({
     original: k,
     norm: k.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -117,8 +117,8 @@ function getField(obj: any, keys: string[]): any {
 
   for (const k of keys) {
     const normSearch = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const found = normalizedObjKeys.find(item => item.norm.includes(normSearch) || normSearch.includes(item.norm));
-    if (found && obj[found.original] !== undefined && obj[found.original] !== null && obj[found.original] !== '') {
+    const found = normalizedObjKeys.find(item => item.norm === normSearch);
+    if (found && obj[found.original] !== undefined && obj[found.original] !== null && String(obj[found.original]).trim() !== '') {
       return obj[found.original];
     }
   }
@@ -127,27 +127,75 @@ function getField(obj: any, keys: string[]): any {
 }
 
 /**
- * Extract complete full name supporting single "Name", separate "First Name" + "Last Name",
- * or nested contact fields from web bookings & google forms.
+ * Remove duplicate repeated words from a name (e.g. "Kelly Kelly Kelly" -> "Kelly", or "Kelly Smith Kelly Smith" -> "Kelly Smith")
+ */
+function cleanRepeatedWords(nameStr: string): string {
+  if (!nameStr) return '';
+  const trimmed = nameStr.trim();
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+
+  // 1. If all words in the string are identical (e.g. ["Kelly", "Kelly", "Kelly"])
+  const firstWord = words[0];
+  if (words.length > 1 && words.every(w => w.toLowerCase() === firstWord.toLowerCase())) {
+    return firstWord;
+  }
+
+  // 2. If it's a repeated full name (e.g. "Kelly Smith Kelly Smith")
+  if (words.length % 2 === 0 && words.length >= 4) {
+    const half = words.length / 2;
+    const firstHalf = words.slice(0, half).join(' ').toLowerCase();
+    const secondHalf = words.slice(half).join(' ').toLowerCase();
+    if (firstHalf === secondHalf) {
+      return words.slice(0, half).join(' ');
+    }
+  }
+
+  // 3. Filter out immediate consecutive duplicates (e.g. "Kelly Kelly Smith" -> "Kelly Smith")
+  const deduped: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    if (i === 0 || words[i].toLowerCase() !== words[i - 1].toLowerCase()) {
+      deduped.push(words[i]);
+    }
+  }
+
+  return deduped.join(' ');
+}
+
+/**
+ * Extract complete name with exact First Name and Last Name logic.
+ * If no last name is present, leaves it blank without repeating.
  */
 function extractFullName(data: any, fallbackIndex?: number): string {
-  if (!data || typeof data !== 'object') return `Customer #${fallbackIndex || 1}`;
+  if (!data || typeof data !== 'object') return '';
 
   // 1. Check for dedicated first and last name fields
-  const firstName = String(getField(data, ['firstName', 'first_name', 'fname', 'first', 'givenName', 'given_name']) || '').trim();
-  const lastName = String(getField(data, ['lastName', 'last_name', 'lname', 'last', 'familyName', 'family_name', 'surname']) || '').trim();
-  if (firstName && lastName) {
-    return `${firstName} ${lastName}`;
-  }
-  if (firstName && !lastName) {
-    return firstName;
-  }
-  if (!firstName && lastName) {
-    return lastName;
+  const rawFirst = getField(data, [
+    'firstName', 'first_name', 'fname', 'first', 'givenName', 'given_name',
+    'first_name_customer', 'client_first_name', 'customer_first_name'
+  ]);
+  const rawLast = getField(data, [
+    'lastName', 'last_name', 'lname', 'last', 'familyName', 'family_name', 'surname',
+    'last_name_customer', 'client_last_name', 'customer_last_name'
+  ]);
+
+  const firstName = (typeof rawFirst === 'string' ? rawFirst : (rawFirst != null ? String(rawFirst) : '')).trim();
+  const lastName = (typeof rawLast === 'string' ? rawLast : (rawLast != null ? String(rawLast) : '')).trim();
+
+  if (firstName || lastName) {
+    if (firstName && lastName) {
+      // If first and last name are accidentally identical, don't repeat
+      if (firstName.toLowerCase() === lastName.toLowerCase()) {
+        return cleanRepeatedWords(firstName);
+      }
+      return cleanRepeatedWords(`${firstName} ${lastName}`);
+    }
+    // If no last name, leave last name blank (return only first name or only last name)
+    return cleanRepeatedWords(firstName || lastName);
   }
 
   // 2. Check general full name fields
-  const directFullName = String(getField(data, [
+  const rawFullName = getField(data, [
     'fullName', 
     'full_name', 
     'name', 
@@ -161,14 +209,18 @@ function extractFullName(data: any, fallbackIndex?: number): string {
     'contact_name', 
     'who',
     'yourName',
-    'your_name'
-  ]) || '').trim();
+    'your_name',
+    'guestName',
+    'guest_name'
+  ]);
+
+  let directFullName = (typeof rawFullName === 'string' ? rawFullName : (rawFullName != null ? String(rawFullName) : '')).trim();
 
   if (directFullName && directFullName.toLowerCase() !== 'online customer') {
-    return directFullName;
+    return cleanRepeatedWords(directFullName);
   }
 
-  return directFullName || `Online Customer`;
+  return directFullName || '';
 }
 
 function parseCleanPrice(val: any, serviceName?: string): number {
@@ -270,7 +322,8 @@ export function isPendingLeadStatus(rawStatus?: string): boolean {
 }
 
 function parseLeadDoc(docId: string, data: any): IncomingRequest {
-  const fullName = extractFullName(data);
+  const extracted = extractFullName(data);
+  const fullName = extracted || (data.fullName ? cleanRepeatedWords(String(data.fullName)) : (data.name ? cleanRepeatedWords(String(data.name)) : 'Online Customer'));
   const phone = String(getField(data, ['phoneNumber', 'phone', 'mobile', 'cell', 'contact', 'telephone', 'phone_number']) || '');
   const email = String(getField(data, ['email', 'mail', 'emailAddress', 'email_address']) || '');
   const vehicle = String(getField(data, ['vehicle', 'vehicleMakeModel', 'car', 'makeModel', 'make_model', 'vehicleType', 'model', 'vehicle_make_model']) || '');
@@ -402,8 +455,12 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Populate already registered customer documents
       firestoreCustomersList.forEach(c => {
-        autoCustomersMap.set(c.id, c);
-        if (c.phoneNumber) autoCustomersMap.set(c.phoneNumber, c);
+        const cleanedCust = {
+          ...c,
+          fullName: cleanRepeatedWords(c.fullName)
+        };
+        autoCustomersMap.set(c.id, cleanedCust);
+        if (c.phoneNumber) autoCustomersMap.set(c.phoneNumber, cleanedCust);
       });
 
       // 1. Process public_bookings collection documents
@@ -788,7 +845,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const timestamp = String(getField(row, ['timestamp', 'created', 'date_submitted', 'submitted_at']) || '');
             
             // Advanced First & Last Name extraction
-            const fullName = extractFullName(row, index + 1);
+            const fullName = extractFullName(row, index + 1) || (rowNumber ? `Guest #${rowNumber}` : `Guest #${index + 1}`);
             const phoneNumber = String(getField(row, ['phone', 'mobile', 'cell', 'number', 'contact', 'telephone', 'phone_number']) || '');
             const email = String(getField(row, ['email', 'mail', 'email_address']) || '');
             const address = String(getField(row, ['address', 'location', 'where', 'street', 'street_address']) || '');
